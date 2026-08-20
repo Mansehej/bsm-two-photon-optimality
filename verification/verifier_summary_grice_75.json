@@ -1,0 +1,15 @@
+{
+  "benchmarks": {
+    "grice_75": {
+      "average": "3/4",
+      "per_state": {
+        "Phi+": "1/2",
+        "Phi-": "1/2",
+        "Psi+": "1",
+        "Psi-": "1"
+      }
+    }
+  },
+  "corruption_tests": [],
+  "sympy_version": "1.14.0"
+}

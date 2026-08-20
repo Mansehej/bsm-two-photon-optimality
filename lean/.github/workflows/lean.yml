@@ -1,0 +1,23 @@
+name: Lean
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          use-github-cache: true
+      - name: Fetch mathlib cache
+        run: lake exe cache get
+      - name: Kernel-check the development
+        run: lake build
+      - name: Elaborate theorem index
+        run: lake env lean Main.lean
+      - name: Reject proof placeholders
+        run: python3 scripts/check_no_placeholders.py

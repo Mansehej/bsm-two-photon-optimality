@@ -1,0 +1,15 @@
+Bell 1RDM check: PASS (I4/2 for all four states)
+Grice balanced-BS decomposition: PASS
+mode 1: sum_d=3/2, 4q+t=3/2, slack=0
+mode 2: sum_d=3/2, 4q+t=3/2, slack=0
+mode 3: sum_d=3/2, 4q+t=3/2, slack=0
+mode 4: sum_d=3/2, 4q+t=3/2, slack=0
+mode 5: sum_d=3/2, 4q+t=3/2, slack=0
+mode 6: sum_d=3/2, 4q+t=3/2, slack=0
+mode 7: sum_d=3/2, 4q+t=3/2, slack=0
+mode 8: sum_d=3/2, 4q+t=3/2, slack=0
+Parseval sums: sum t=4, sum q=2: PASS
+Grice global count: sum_{j,ell} d = 12 = 4*sum_j p_j: PASS
+Grice saturation of 3/4: PASS
+Scalar cone certificate identity: PASS
+ALL GLOBAL-BOUND SANITY CHECKS PASSED

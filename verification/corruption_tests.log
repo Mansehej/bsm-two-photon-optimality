@@ -1,0 +1,8 @@
+nonunitary_U: PASS (rejected)
+incorrect_ancilla_normalization: PASS (detected)
+small_nonzero_cross_amplitude: PASS (rejected exactly)
+wrong_mode_ordering: PASS (detected by cross-amplitude check)
+repeated_photon_factorial_normalization: PASS (bad formula disagrees at Phi+ (4, 0, 0, 0, 0, 0, 0, 0))
+threshold_vs_PNR_coarse_graining: PASS (86 ambiguous threshold signatures detected)
+hidden_fifth_photon: PASS (ancilla photon count=3, rejected for two-photon resource)
+double_counted_pattern: PASS (rejected)

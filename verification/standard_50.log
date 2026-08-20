@@ -1,0 +1,10 @@
+
+=== standard_50 ===
+computing creation-polynomial amplitudes ...
+computing permanent amplitudes ...
+two-engine amplitude check: PASS
+success: {'Phi+': '0', 'Phi-': '0', 'Psi+': '1', 'Psi-': '1'} average 1/2
+successful pattern counts: {'Phi+': 0, 'Phi-': 0, 'Psi+': 2, 'Psi-': 2}
+inconclusive patterns: 6 of which zero-for-all: 2
+
+PASS

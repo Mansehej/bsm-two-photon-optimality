@@ -1,0 +1,12 @@
+import BellMeasurement
+
+#check BellMeasurement.removeOne_injective_on_occupied
+#check BellMeasurement.weighted_cap_four
+#check BellMeasurement.per_mode_success_bound
+#check BellMeasurement.two_photon_global_average_bound
+#check BellMeasurement.fixed_k_average_bound
+#check BellMeasurement.grice_average
+
+#print axioms BellMeasurement.removeOne_injective_on_occupied
+#print axioms BellMeasurement.per_mode_success_bound
+#print axioms BellMeasurement.two_photon_global_average_bound

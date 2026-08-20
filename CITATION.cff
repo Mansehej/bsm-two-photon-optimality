@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this manuscript or certificate package, please cite it using these metadata."
+title: "Optimal Unambiguous Dual-Rail Bell-State Measurement with Two Ancillary Photons"
+type: software
+version: 1.1.0
+doi: 10.5281/zenodo.22027744
+repository-code: https://github.com/Mansehej/bsm-two-photon-optimality
+license:
+  - MIT
+  - CC-BY-4.0
+date-released: 2026-08-19
+authors:
+  - family-names: Singh
+    given-names: Mansehej
+    email: mansehej@gmail.com
+    affiliation: Independent Researcher
+preferred-citation:
+  type: article
+  title: "Optimal Unambiguous Dual-Rail Bell-State Measurement with Two Ancillary Photons"
+  authors:
+    - family-names: Singh
+      given-names: Mansehej
+      email: mansehej@gmail.com
+      affiliation: Independent Researcher
+  year: 2026

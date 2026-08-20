@@ -1,0 +1,10 @@
+
+=== grice_75 ===
+computing creation-polynomial amplitudes ...
+computing permanent amplitudes ...
+two-engine amplitude check: PASS
+success: {'Phi+': '1/2', 'Phi-': '1/2', 'Psi+': '1', 'Psi-': '1'} average 3/4
+successful pattern counts: {'Phi+': 20, 'Phi-': 16, 'Psi+': 80, 'Psi-': 80}
+inconclusive patterns: 134 of which zero-for-all: 112
+
+PASS

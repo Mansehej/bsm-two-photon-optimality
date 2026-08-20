@@ -1,0 +1,22 @@
+{
+  "title": "Optimal Unambiguous Dual-Rail Bell-State Measurement with Linear Optics and Two Ancillary Photons",
+  "description": "Research package for the theorem that the optimal unambiguous dual-rail Bell-state measurement with static passive linear optics, ideal photon-number-resolving detection, and an arbitrary pure ancilla of exactly two photons has success probability exactly 3/4, with the general fixed-k bound (k+1)/(k+2) attained by the Grice hierarchy at k = 2^N - 2. Contains the manuscript (CC-BY 4.0), exact symbolic verification code with two independent amplitude engines, machine-readable certificates, and a kernel-checked Lean 4 certificate-layer formalization (MIT).",
+  "upload_type": "software",
+  "license": "mit",
+  "creators": [
+    {
+      "name": "Singh, Mansehej",
+      "affiliation": "Independent Researcher"
+    }
+  ],
+  "keywords": [
+    "Bell-state measurement",
+    "linear optics",
+    "quantum optics",
+    "unambiguous state discrimination",
+    "photon-number-resolving detection",
+    "quantum teleportation",
+    "Lean 4",
+    "formal verification"
+  ]
+}

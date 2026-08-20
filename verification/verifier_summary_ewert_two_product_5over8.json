@@ -1,0 +1,15 @@
+{
+  "benchmarks": {
+    "ewert_two_product_5over8": {
+      "average": "5/8",
+      "per_state": {
+        "Phi+": "1/4",
+        "Phi-": "1/4",
+        "Psi+": "1",
+        "Psi-": "1"
+      }
+    }
+  },
+  "corruption_tests": [],
+  "sympy_version": "1.14.0"
+}

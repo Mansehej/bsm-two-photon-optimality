@@ -1,0 +1,9 @@
+
+=== ewert_four_product_75 ===
+computing creation-polynomial amplitudes ...
+permanent engine skipped for this larger benchmark
+success: {'Phi+': '1/2', 'Phi-': '1/2', 'Psi+': '1', 'Psi-': '1'} average 3/4
+successful pattern counts: {'Phi+': 60, 'Phi-': 48, 'Psi+': 192, 'Psi-': 200}
+inconclusive patterns: 1216 of which zero-for-all: 1144
+
+PASS

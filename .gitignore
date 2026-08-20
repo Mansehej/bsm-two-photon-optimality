@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+
+# Lean / Lake build artifacts
+lean/.lake/
+lean/lake-packages/
+
+# LaTeX intermediates (final PDFs are tracked)
+paper/main.pdf
+*.aux
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.bbl
+*.blg
+
+# OS
+.DS_Store

@@ -1,0 +1,10 @@
+
+=== ewert_two_product_5over8 ===
+computing creation-polynomial amplitudes ...
+computing permanent amplitudes ...
+two-engine amplitude check: PASS
+success: {'Phi+': '1/4', 'Phi-': '1/4', 'Psi+': '1', 'Psi-': '1'} average 5/8
+successful pattern counts: {'Phi+': 5, 'Phi-': 4, 'Psi+': 22, 'Psi-': 20}
+inconclusive patterns: 75 of which zero-for-all: 57
+
+PASS

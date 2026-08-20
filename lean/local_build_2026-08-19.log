@@ -1,0 +1,25 @@
+Local kernel build of the certificate-layer Lean project
+=========================================================
+Date: 2026-08-19
+Toolchain: Lean (version 4.31.0, arm64-apple-darwin24.6.0, commit 68218e876d2a38b1985b8590fff244a83c321783, Release) (pinned via lean-toolchain: leanprover/lean4:v4.31.0)
+Mathlib: tag v4.31.0 (per lakefile.lean), oleans from leanprover-community cache
+
+lake update              : OK (dependencies resolved and pinned)
+lake exe cache get       : OK (8542 mathlib cache files)
+lake build               : OK — "Build completed successfully (8564 jobs)"
+lake env lean Main.lean  : OK (all #check declarations elaborate)
+
+#print axioms output:
+'BellMeasurement.removeOne_injective_on_occupied' depends on axioms: [propext, Quot.sound]
+'BellMeasurement.per_mode_success_bound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BellMeasurement.two_photon_global_average_bound' depends on axioms: [propext, Classical.choice, Quot.sound]
+
+All certificate theorems are kernel-checked and depend only on Lean's three
+standard axioms. No sorry, admit, declaration-level axiom, or unsafe
+declaration is present in the project sources (placeholder scan re-run after
+the build with build directories excluded).
+
+Note: scripts/check_no_placeholders.py was fixed on 2026-08-19 to exclude
+.lake/ build directories; the previous version would flag mathlib's own test
+files after any successful build, which would also have failed the packaged
+GitHub Actions workflow at its final step.
