@@ -2,7 +2,7 @@
 
 ## Result
 
-The analytic certificate in `global_bound_proof.md` proves, for the frozen resource model in the task statement,
+The manuscript in `../paper/` proves, for its resource model,
 
 `P*_2 = 3/4`.
 
@@ -10,9 +10,7 @@ The upper bound is dimension-free over arbitrary finite ancillary/vacuum mode co
 
 ## Files
 
-- `global_bound_proof.md` — complete analytic upper-bound proof.
-- `global_bound_certificate.py` / `.log` — exact algebraic sanity checks for the proof ingredients and Grice saturation.
-- `status_audit.md` — 17 August 2026 primary-literature resource audit and post-discovery search summary.
+- `global_bound_certificate.py` / `.log` — exact algebraic sanity checks for the manuscript's proof ingredients and Grice saturation.
 - `exact_bsm_verifier.py` — two independent exact amplitude engines: bosonic permanents and creation-polynomial expansion.
 - `grice_75.json` — exact 8-mode Grice ancilla, unitary, complete success partition, complete inconclusive partition, and exact per-input success probabilities.
 - `grice_decomposition.json` — exact balanced-beamsplitter decomposition of the Grice unitary.
@@ -20,7 +18,6 @@ The upper bound is dimension-free over arbitrary finite ancillary/vacuum mode co
 - `ewert_two_product_5over8.json` — exact benchmark with two externally unentangled ancillary single photons.
 - `ewert_four_product_75.json` — exact benchmark with four externally unentangled ancillary single photons.
 - `*.log` and `corruption_tests.log` — replay output / deliberate-corruption results.
-- `approach_registry.md` — route registry and adversarial audit.
 
 All occupation vectors in JSON are 0-based arrays of photon counts. Narrative mode names are 1-based.
 
@@ -42,7 +39,7 @@ identically on both rails. The file `grice_75.json` stores the resulting full 8x
 
 `B=(1/sqrt(2))*[[1,i],[i,1]]`.
 
-Exact conditional success probabilities in task Bell ordering:
+Exact conditional success probabilities in the manuscript's Bell ordering:
 
 `Phi+ = 1/2, Phi- = 1/2, Psi+ = 1, Psi- = 1`, average `3/4`.
 
@@ -51,7 +48,7 @@ Exact conditional success probabilities in task Bell ordering:
 Requires Python 3 and SymPy 1.14 or compatible.
 
 ```bash
-cd bsm_two_photon_optimum
+cd verification
 python exact_bsm_verifier.py --case standard_50
 python exact_bsm_verifier.py --case grice_75
 python exact_bsm_verifier.py --case ewert_two_product_5over8

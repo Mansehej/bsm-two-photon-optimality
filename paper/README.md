@@ -9,8 +9,8 @@ This directory contains the clean scientific paper only.
 
 The main manuscript is intentionally limited to the scientific contribution:
 problem context, resource model, theorem, proof, general corollary, attaining
-construction, and implications. Computational verification, development audits,
-and Lean implementation details are kept outside the paper.
+construction, and implications. Computational verification and
+Lean implementation details are kept outside the paper.
 
 Build with:
 
