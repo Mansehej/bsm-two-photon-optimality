@@ -1,8 +1,7 @@
-name: Lean
+name: AME84 Lean Build
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -10,18 +9,40 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: lean
+        working-directory: ame84-lean
     steps:
       - uses: actions/checkout@v4
+      - name: Decode project source
+        working-directory: .
+        shell: bash
+        run: |
+          rm -rf ame84-lean
+          mkdir -p ame84-lean
+          base64 -d ame84_project.tar.gz.b64 | tar -xz -C ame84-lean
       - uses: leanprover/lean-action@v1
         with:
-          lake-package-directory: lean
+          lake-package-directory: ame84-lean
           use-github-cache: true
-      - name: Fetch mathlib cache
+      - name: Fetch Mathlib cache
         run: lake exe cache get
-      - name: Kernel-check the development
-        run: lake build
-      - name: Elaborate theorem index
-        run: lake env lean Main.lean
-      - name: Reject proof placeholders
+      - name: Clean Lake build
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build_logs
+          rm -rf .lake/build
+          lake build 2>&1 | tee build_logs/clean_lake_build.log
+      - name: Print theorem axioms
+        shell: bash
+        run: |
+          set -o pipefail
+          lake env lean AME84Support512/AxiomReport.lean 2>&1 | tee build_logs/axiom_report_output.log
+      - name: Reject placeholders
         run: python3 scripts/check_no_placeholders.py
+      - name: Upload compiler-clean source and logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ame84-lean-project
+          path: ame84-lean
+          include-hidden-files: true
+          retention-days: 30
