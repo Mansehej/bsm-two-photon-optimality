@@ -1,0 +1,435 @@
+name: AME84 concrete marginal bridge v7
+
+on:
+  push:
+    branches: [ame84-support512-lean-build]
+    paths:
+      - '.github/workflows/ame84-lean-concrete-bridge-v7.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ame84-support512-lean-build
+      - name: Obtain latest compiler-clean v6 base
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for i in $(seq 1 60); do
+            git fetch origin ame84-support512-lean-build
+            if git show origin/ame84-support512-lean-build:ame84-deliverables/AME84_support512_Lean_FINAL_v6.zip > /tmp/ame84-v6.zip 2>/dev/null; then
+              found=1
+              break
+            fi
+            sleep 10
+          done
+          test "$found" = 1
+          rm -rf ame84-lean
+          mkdir ame84-lean
+          unzip -q /tmp/ame84-v6.zip -d ame84-lean
+          cp -a ame84-lean /tmp/ame84-base-v6
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: ame84-lean
+          use-github-cache: true
+      - name: Attempt concrete distribution, moment, support, and OA bridge
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd ame84-lean
+          cat > AME84Support512/ConcreteOutcome.lean <<'EOF'
+          import AME84Support512.Baseline
+
+          open scoped BigOperators
+
+          namespace AME84Support512
+
+          abbrev Site := Fin 8
+          abbrev Symbol := Fin 4
+          abbrev Word := Site → Symbol
+          abbrev Pattern (J : Finset Site) := J → Symbol
+
+          def restrictWord (x : Word) (J : Finset Site) : Pattern J := fun i => x i.1
+
+          def patternFiber (J : Finset Site) (a : Pattern J) : Finset Word :=
+            Finset.univ.filter fun x => restrictWord x J = a
+
+          def outcomeSupport (p : Word → ℚ) : Finset Word :=
+            Finset.univ.filter fun x => p x ≠ 0
+
+          def outcomeSupportFiber (p : Word → ℚ) (J : Finset Site) (a : Pattern J) : Finset Word :=
+            (patternFiber J a).filter fun x => p x ≠ 0
+
+          def agreementSet (x y : Word) : Finset Site :=
+            Finset.univ.filter fun i => x i = y i
+
+          def agreementCount (x y : Word) : ℕ := (agreementSet x y).card
+
+          structure FourUniformOutcome (p : Word → ℚ) : Prop where
+            nonneg : ∀ x, 0 ≤ p x
+            uniform : ∀ (J : Finset Site), J.card ≤ 4 → ∀ a : Pattern J,
+              ∑ x in patternFiber J a, p x = 1 / (4 : ℚ) ^ J.card
+
+          theorem agreementCount_le_eight (x y : Word) : agreementCount x y ≤ 8 := by
+            unfold agreementCount agreementSet
+            simpa using Finset.card_le_card (Finset.filter_subset (Finset.univ : Finset Site) _)
+
+          def siteSubsets (j : ℕ) : Finset (Finset Site) :=
+            (Finset.univ : Finset Site).powersetCard j
+
+          theorem subset_filter_eq_agreement_powerset (x y : Word) (j : ℕ) :
+              (siteSubsets j).filter (fun J => restrictWord y J = restrictWord x J) =
+                (agreementSet x y).powersetCard j := by
+            classical
+            ext J
+            constructor
+            · intro h
+              have hdata := Finset.mem_filter.mp h
+              have hcard := (Finset.mem_powersetCard.mp hdata.1).2
+              apply Finset.mem_powersetCard.mpr
+              refine ⟨?_, hcard⟩
+              intro i hi
+              have hfun := congrFun hdata.2 ⟨i, hi⟩
+              simpa [agreementSet, restrictWord] using hfun
+            · intro h
+              have hdata := Finset.mem_powersetCard.mp h
+              apply Finset.mem_filter.mpr
+              refine ⟨Finset.mem_powersetCard.mpr ⟨Finset.subset_univ J, hdata.2⟩, ?_⟩
+              funext i
+              have hi := hdata.1 i.1 i.2
+              simpa [agreementSet, restrictWord] using hi
+
+          def subsetMoment (p : Word → ℚ) (x : Word) (j : ℕ) : ℚ :=
+            ∑ J in siteSubsets j, ∑ y in patternFiber J (restrictWord x J), p y
+
+          theorem subsetMoment_eq_chooseMoment (p : Word → ℚ) (x : Word) (j : ℕ) :
+              subsetMoment p x j =
+                ∑ y : Word, p y * (Nat.choose (agreementCount x y) j : ℚ) := by
+            classical
+            unfold subsetMoment
+            calc
+              (∑ J in siteSubsets j, ∑ y in patternFiber J (restrictWord x J), p y) =
+                  ∑ J in siteSubsets j,
+                    ∑ y in (Finset.univ : Finset Word),
+                      if restrictWord y J = restrictWord x J then p y else 0 := by
+                    apply Finset.sum_congr rfl
+                    intro J hJ
+                    rw [← Finset.sum_filter]
+                    rfl
+              _ = ∑ y in (Finset.univ : Finset Word),
+                    ∑ J in siteSubsets j,
+                      if restrictWord y J = restrictWord x J then p y else 0 := by
+                    rw [Finset.sum_comm]
+              _ = ∑ y : Word, p y * (Nat.choose (agreementCount x y) j : ℚ) := by
+                    apply Finset.sum_congr rfl
+                    intro y hy
+                    rw [← Finset.sum_filter]
+                    rw [subset_filter_eq_agreement_powerset]
+                    simp [agreementCount, mul_comm]
+
+          theorem concrete_falling_moment
+              {p : Word → ℚ} (D : FourUniformOutcome p) (x : Word)
+              (j : ℕ) (hj : j ≤ 4) :
+              ∑ y : Word, p y * (Nat.choose (agreementCount x y) j : ℚ) =
+                (Nat.choose 8 j : ℚ) / (4 : ℚ) ^ j := by
+            rw [← subsetMoment_eq_chooseMoment]
+            unfold subsetMoment
+            calc
+              (∑ J in siteSubsets j, ∑ y in patternFiber J (restrictWord x J), p y) =
+                  ∑ J in siteSubsets j, (1 / (4 : ℚ) ^ j) := by
+                    apply Finset.sum_congr rfl
+                    intro J hJ
+                    have hcard : J.card = j := (Finset.mem_powersetCard.mp hJ).2
+                    simpa [hcard] using D.uniform J (by omega) (restrictWord x J)
+              _ = (Nat.choose 8 j : ℚ) / (4 : ℚ) ^ j := by
+                    simp [siteSubsets, Finset.card_powersetCard, nsmul_eq_mul]
+
+          theorem certificatePolynomial_expansion_on_counts (t : ℕ) (ht : t ≤ 8) :
+              certificatePolynomial t = (1 / 280 : ℚ) * Nat.choose t 2
+                - (3 / 280 : ℚ) * Nat.choose t 3
+                + (3 / 140 : ℚ) * Nat.choose t 4 := by
+            interval_cases t <;> norm_num [certificatePolynomial, Nat.choose]
+
+          theorem certificatePolynomial_nonnegative_on_counts (t : ℕ) (ht : t ≤ 8) :
+              0 ≤ certificatePolynomial t := by
+            interval_cases t <;> norm_num [certificatePolynomial]
+
+          theorem generic_sum_linear_three
+              {α : Type} [Fintype α] (p f g h : α → ℚ) (a b c : ℚ) :
+              (∑ x : α, p x * (a * f x - b * g x + c * h x)) =
+                a * (∑ x : α, p x * f x)
+                - b * (∑ x : α, p x * g x)
+                + c * (∑ x : α, p x * h x) := by
+            classical
+            have hp : ∀ x, p x * (a * f x - b * g x + c * h x) =
+                a * (p x * f x) - b * (p x * g x) + c * (p x * h x) := by
+              intro x
+              ring
+            simp_rw [hp]
+            rw [Finset.sum_add_distrib, Finset.sum_sub_distrib]
+            rw [← Finset.mul_sum, ← Finset.mul_sum, ← Finset.mul_sum]
+
+          def concreteExpectedP (p : Word → ℚ) (x : Word) : ℚ :=
+            ∑ y : Word, p y * certificatePolynomial (agreementCount x y)
+
+          theorem concrete_expected_P_eq
+              {p : Word → ℚ} (D : FourUniformOutcome p) (x : Word) :
+              concreteExpectedP p x = 7 / 2560 := by
+            unfold concreteExpectedP
+            calc
+              (∑ y : Word, p y * certificatePolynomial (agreementCount x y)) =
+                  ∑ y : Word, p y *
+                    ((1 / 280 : ℚ) * Nat.choose (agreementCount x y) 2
+                    - (3 / 280 : ℚ) * Nat.choose (agreementCount x y) 3
+                    + (3 / 140 : ℚ) * Nat.choose (agreementCount x y) 4) := by
+                      apply Finset.sum_congr rfl
+                      intro y hy
+                      rw [certificatePolynomial_expansion_on_counts _ (agreementCount_le_eight x y)]
+              _ = (1 / 280 : ℚ) *
+                    (∑ y : Word, p y * Nat.choose (agreementCount x y) 2)
+                  - (3 / 280 : ℚ) *
+                    (∑ y : Word, p y * Nat.choose (agreementCount x y) 3)
+                  + (3 / 140 : ℚ) *
+                    (∑ y : Word, p y * Nat.choose (agreementCount x y) 4) := by
+                      exact generic_sum_linear_three p
+                        (fun y => Nat.choose (agreementCount x y) 2)
+                        (fun y => Nat.choose (agreementCount x y) 3)
+                        (fun y => Nat.choose (agreementCount x y) 4)
+                        (1 / 280) (3 / 280) (3 / 140)
+              _ = 7 / 2560 := by
+                    rw [concrete_falling_moment D x 2 (by norm_num)]
+                    rw [concrete_falling_moment D x 3 (by norm_num)]
+                    rw [concrete_falling_moment D x 4 (by norm_num)]
+                    norm_num [Nat.choose]
+
+          theorem concrete_point_indicator_le_P (x y : Word) :
+              (if y = x then (1 : ℚ) else 0) ≤ certificatePolynomial (agreementCount x y) := by
+            by_cases h : y = x
+            · subst y
+              have hm : agreementCount x x = 8 := by simp [agreementCount, agreementSet]
+              simp [hm, certificatePolynomial]
+            · simp only [h, if_false]
+              exact certificatePolynomial_nonnegative_on_counts _ (agreementCount_le_eight x y)
+
+          theorem concrete_atom_bound
+              {p : Word → ℚ} (D : FourUniformOutcome p) (x : Word) :
+              p x ≤ 7 / 2560 := by
+            calc
+              p x = ∑ y : Word, p y * (if y = x then (1 : ℚ) else 0) := by
+                classical
+                simp [mul_ite]
+              _ ≤ concreteExpectedP p x := by
+                unfold concreteExpectedP
+                apply Finset.sum_le_sum
+                intro y hy
+                exact mul_le_mul_of_nonneg_left (concrete_point_indicator_le_P x y) (D.nonneg y)
+              _ = 7 / 2560 := concrete_expected_P_eq D x
+
+          theorem sum_outcomeSupportFiber_eq_patternFiber
+              (p : Word → ℚ) (J : Finset Site) (a : Pattern J) :
+              ∑ x in outcomeSupportFiber p J a, p x = ∑ x in patternFiber J a, p x := by
+            classical
+            unfold outcomeSupportFiber
+            rw [Finset.sum_filter]
+            apply Finset.sum_congr rfl
+            intro x hx
+            by_cases hp : p x = 0 <;> simp [hp]
+
+          theorem outcome_support_partition
+              (p : Word → ℚ) (J : Finset Site) :
+              (outcomeSupport p).card =
+                ∑ a : Pattern J, (outcomeSupportFiber p J a).card := by
+            classical
+            calc
+              (outcomeSupport p).card = ∑ x in outcomeSupport p, 1 := by simp
+              _ = ∑ x in outcomeSupport p,
+                    ∑ a : Pattern J, if restrictWord x J = a then 1 else 0 := by
+                      apply Finset.sum_congr rfl
+                      intro x hx
+                      simp
+              _ = ∑ a : Pattern J,
+                    ∑ x in outcomeSupport p, if restrictWord x J = a then 1 else 0 := by
+                      rw [Finset.sum_comm]
+              _ = ∑ a : Pattern J, (outcomeSupportFiber p J a).card := by
+                      apply Finset.sum_congr rfl
+                      intro a ha
+                      simp [outcomeSupportFiber, patternFiber, outcomeSupport]
+
+          theorem pattern_card_256 (J : Finset Site) (hJ : J.card = 4) :
+              Fintype.card (Pattern J) = 256 := by
+            simp [Pattern, Fintype.card_fun, hJ]
+
+          theorem concrete_each_four_fiber_has_two
+              {p : Word → ℚ} (D : FourUniformOutcome p)
+              (J : Finset Site) (hJ : J.card = 4) (a : Pattern J) :
+              2 ≤ (outcomeSupportFiber p J a).card := by
+            classical
+            have hmass : ∑ x in outcomeSupportFiber p J a, p x = 1 / 256 := by
+              rw [sum_outcomeSupportFiber_eq_patternFiber, D.uniform J (by omega) a]
+              norm_num [hJ]
+            by_contra hnot
+            have hcases : (outcomeSupportFiber p J a).card = 0 ∨
+                (outcomeSupportFiber p J a).card = 1 := by omega
+            rcases hcases with hzero | hone
+            · have hs : outcomeSupportFiber p J a = ∅ := Finset.card_eq_zero.mp hzero
+              rw [hs] at hmass
+              norm_num at hmass
+            · obtain ⟨x, hx⟩ := Finset.card_eq_one.mp hone
+              rw [hx] at hmass
+              simp only [Finset.sum_singleton] at hmass
+              have hatom := concrete_atom_bound D x
+              linarith
+
+          def firstFourSites : Finset Site := {0, 1, 2, 3}
+          theorem firstFourSites_card : firstFourSites.card = 4 := by native_decide
+
+          theorem concrete_support_at_least_512
+              {p : Word → ℚ} (D : FourUniformOutcome p) :
+              512 ≤ (outcomeSupport p).card := by
+            classical
+            have hsum : (∑ a : Pattern firstFourSites, 2) ≤
+                ∑ a : Pattern firstFourSites,
+                  (outcomeSupportFiber p firstFourSites a).card := by
+              apply Finset.sum_le_sum
+              intro a ha
+              exact concrete_each_four_fiber_has_two D firstFourSites firstFourSites_card a
+            calc
+              512 = ∑ a : Pattern firstFourSites, 2 := by
+                simp [pattern_card_256 firstFourSites firstFourSites_card]
+              _ ≤ ∑ a : Pattern firstFourSites,
+                    (outcomeSupportFiber p firstFourSites a).card := hsum
+              _ = (outcomeSupport p).card := (outcome_support_partition p firstFourSites).symm
+
+          theorem concrete_support_512_forces_OA_index_two
+              {p : Word → ℚ} (D : FourUniformOutcome p)
+              (hsupport : (outcomeSupport p).card = 512)
+              (J : Finset Site) (hJ : J.card = 4) (a : Pattern J) :
+              (outcomeSupportFiber p J a).card = 2 := by
+            classical
+            have hge := concrete_each_four_fiber_has_two D J hJ a
+            by_contra hne
+            have hgt : 2 < (outcomeSupportFiber p J a).card := by omega
+            have hstrict : (∑ b : Pattern J, 2) <
+                ∑ b : Pattern J, (outcomeSupportFiber p J b).card := by
+              apply Finset.sum_lt_sum
+              · intro b hb
+                exact concrete_each_four_fiber_has_two D J hJ b
+              · exact ⟨a, Finset.mem_univ a, hgt⟩
+            have hpartition := outcome_support_partition p J
+            have hconstant : (∑ b : Pattern J, 2) = 512 := by
+              simp [pattern_card_256 J hJ]
+            rw [hconstant, ← hpartition, hsupport] at hstrict
+            exact (lt_irrefl 512 hstrict)
+
+          end AME84Support512
+          EOF
+          cp AME84Support512.lean /tmp/AME84Support512.root.before
+          printf '\nimport AME84Support512.ConcreteOutcome\n' >> AME84Support512.lean
+          rm -rf .lake/build
+          if lake build > build_logs/concrete_bridge_attempt.log 2>&1; then
+            echo success > /tmp/concrete-bridge-status
+          else
+            echo failed > /tmp/concrete-bridge-status
+            cp build_logs/concrete_bridge_attempt.log /tmp/concrete_bridge_failed.log
+            cd ..
+            rm -rf ame84-lean
+            cp -a /tmp/ame84-base-v6 ame84-lean
+          fi
+      - name: Finalize and clean-build selected project
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(cat /tmp/concrete-bridge-status)
+          cd ame84-lean
+          cp /tmp/concrete_bridge_failed.log build_logs/ 2>/dev/null || true
+          if [ "$status" = success ]; then
+            cat >> FORMALIZATION_MANIFEST.md <<'EOF'
+
+          ## Concrete bridge added by v7
+          - arbitrary outcome distributions on `(Fin 8 → Fin 4)` with exact four-party pattern marginals;
+          - falling-factorial moment identities through order four by finite double counting;
+          - concrete expected polynomial value and atom bound;
+          - concrete support lower bound 512;
+          - equality support 512 gives index-two fibers for every four-site subset.
+          EOF
+            cat >> THEOREM_MAP.md <<'EOF'
+
+          v7 concrete exports: `concrete_falling_moment`, `concrete_expected_P_eq`, `concrete_atom_bound`, `concrete_support_at_least_512`, `concrete_support_512_forces_OA_index_two`.
+          EOF
+          fi
+          cat > AME84Support512/AxiomReport.lean <<'EOF'
+          import AME84Support512
+          open AME84Support512
+          #print axioms certificatePolynomial_table
+          #print axioms certificate_expectation_arithmetic
+          #print axioms finite_counts
+          #print axioms singleton_forces_distance_five
+          #print axioms conditional_additive_code_exclusion
+          EOF
+          if grep -q 'MomentCertificate' AME84Support512.lean; then cat >> AME84Support512/AxiomReport.lean <<'EOF'
+          #print axioms P_falling_factorial_expansion
+          #print axioms expected_P_eq_seven_over_2560
+          #print axioms atom_eight_le_seven_over_2560
+          #print axioms support_at_least_512
+          #print axioms support_512_forces_index_two
+          EOF
+          fi
+          if grep -q 'GraphCore' AME84Support512.lean; then cat >> AME84Support512/AxiomReport.lean <<'EOF'
+          #print axioms orthogonal_rows_have_no_single_common_support
+          #print axioms degree_two_orthogonal_support_is_locally_K22
+          EOF
+          fi
+          if [ "$status" = success ]; then cat >> AME84Support512/AxiomReport.lean <<'EOF'
+          #print axioms concrete_falling_moment
+          #print axioms concrete_expected_P_eq
+          #print axioms concrete_atom_bound
+          #print axioms concrete_support_at_least_512
+          #print axioms concrete_support_512_forces_OA_index_two
+          EOF
+          fi
+          rm -rf .lake/build
+          lake build 2>&1 | tee build_logs/clean_lake_build.log
+          {
+            echo
+            echo '--- environment attestation ---'
+            lean --version
+            lake --version
+            printf 'mathlib_commit='
+            git -C .lake/packages/mathlib rev-parse HEAD
+            echo "concrete_bridge=${status}"
+            echo 'lake_build_exit_status=0'
+          } | tee -a build_logs/clean_lake_build.log
+          lake env lean AME84Support512/AxiomReport.lean 2>&1 | tee build_logs/axiom_report_output.log
+          python3 scripts/check_no_placeholders.py
+      - name: Package and attach v7
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ame84-final-v7
+          mkdir ame84-final-v7
+          find ame84-lean -type f -not -path 'ame84-lean/.lake/*' -print0 | sort -z | xargs -0 sha256sum > ame84-lean/MANIFEST.sha256
+          (cd ame84-lean && zip -qr ../ame84-final-v7/AME84_support512_Lean_FINAL_v7.zip . -x '.lake/*')
+          sha256sum ame84-final-v7/AME84_support512_Lean_FINAL_v7.zip > ame84-final-v7/AME84_support512_Lean_FINAL_v7.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AME84-support512-Lean-FINAL-v7
+          path: ame84-final-v7
+          retention-days: 30
+      - name: Commit v7 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'AME84 Lean CI'
+          git config user.email 'actions@users.noreply.github.com'
+          mkdir -p ame84-deliverables
+          cp ame84-final-v7/AME84_support512_Lean_FINAL_v7.zip ame84-deliverables/
+          cp ame84-final-v7/AME84_support512_Lean_FINAL_v7.zip.sha256 ame84-deliverables/
+          git add -f ame84-deliverables/AME84_support512_Lean_FINAL_v7.zip ame84-deliverables/AME84_support512_Lean_FINAL_v7.zip.sha256
+          git commit -m 'Attach AME84 Lean package with concrete bridge attempt v7' || exit 0
+          git push origin HEAD:ame84-support512-lean-build
