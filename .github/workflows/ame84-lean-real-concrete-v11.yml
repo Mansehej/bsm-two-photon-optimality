@@ -1,0 +1,446 @@
+name: AME84 real-valued concrete bridge v11
+
+on:
+  push:
+    branches: [ame84-support512-lean-build]
+    paths:
+      - '.github/workflows/ame84-lean-real-concrete-v11.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ame84-support512-lean-build
+      - name: Obtain v8 compiler-clean base
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for i in $(seq 1 150); do
+            git fetch origin ame84-support512-lean-build
+            if git show origin/ame84-support512-lean-build:ame84-deliverables/AME84_support512_Lean_FINAL_v8.zip > /tmp/ame84-v8.zip 2>/dev/null; then
+              found=1; break
+            fi
+            sleep 10
+          done
+          test "$found" = 1
+          rm -rf ame84-lean
+          mkdir ame84-lean
+          unzip -q /tmp/ame84-v8.zip -d ame84-lean
+          cp -a ame84-lean /tmp/ame84-base-v8
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: ame84-lean
+          use-github-cache: true
+      - name: Attempt corrected real-valued concrete theorem
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd ame84-lean
+          cat > AME84Support512/RealConcreteOutcome.lean <<'EOF'
+          import Mathlib
+
+          open scoped BigOperators
+
+          namespace AME84Support512
+
+          abbrev RealSite := Fin 8
+          abbrev RealSymbol := Fin 4
+          abbrev RealWord := RealSite → RealSymbol
+          abbrev RealPattern (J : Finset RealSite) := J → RealSymbol
+
+          def realRestrict (x : RealWord) (J : Finset RealSite) : RealPattern J := fun i => x i.1
+
+          def realPatternFiber (J : Finset RealSite) (a : RealPattern J) : Finset RealWord :=
+            Finset.univ.filter fun x => realRestrict x J = a
+
+          def realOutcomeSupport (p : RealWord → ℝ) : Finset RealWord :=
+            Finset.univ.filter fun x => p x ≠ 0
+
+          def realOutcomeSupportFiber
+              (p : RealWord → ℝ) (J : Finset RealSite) (a : RealPattern J) : Finset RealWord :=
+            (realPatternFiber J a).filter fun x => p x ≠ 0
+
+          def realAgreementSet (x y : RealWord) : Finset RealSite :=
+            Finset.univ.filter fun i => x i = y i
+
+          def realAgreementCount (x y : RealWord) : ℕ := (realAgreementSet x y).card
+
+          structure RealFourUniformOutcome (p : RealWord → ℝ) : Prop where
+            nonneg : ∀ x, 0 ≤ p x
+            uniform : ∀ (J : Finset RealSite), J.card ≤ 4 → ∀ a : RealPattern J,
+              ∑ x in realPatternFiber J a, p x = 1 / (4 : ℝ) ^ J.card
+
+          theorem realAgreementCount_le_eight (x y : RealWord) : realAgreementCount x y ≤ 8 := by
+            unfold realAgreementCount realAgreementSet
+            have hsub : (Finset.univ.filter fun i : RealSite => x i = y i) ⊆ Finset.univ :=
+              Finset.filter_subset _ _
+            simpa using Finset.card_le_card hsub
+
+          def realSiteSubsets (j : ℕ) : Finset (Finset RealSite) :=
+            (Finset.univ : Finset RealSite).powersetCard j
+
+          theorem real_subset_filter_eq_agreement_powerset
+              (x y : RealWord) (j : ℕ) :
+              (realSiteSubsets j).filter (fun J => realRestrict y J = realRestrict x J) =
+                (realAgreementSet x y).powersetCard j := by
+            classical
+            ext J
+            constructor
+            · intro h
+              have hdata := Finset.mem_filter.mp h
+              have hcard := (Finset.mem_powersetCard.mp hdata.1).2
+              apply Finset.mem_powersetCard.mpr
+              refine ⟨?_, hcard⟩
+              intro i hi
+              have hfun := congrFun hdata.2 ⟨i, hi⟩
+              simpa [realAgreementSet, realRestrict, eq_comm] using hfun
+            · intro h
+              have hdata := Finset.mem_powersetCard.mp h
+              apply Finset.mem_filter.mpr
+              refine ⟨Finset.mem_powersetCard.mpr ⟨Finset.subset_univ J, hdata.2⟩, ?_⟩
+              funext i
+              have hi := hdata.1 i.1 i.2
+              simpa [realAgreementSet, realRestrict, eq_comm] using hi
+
+          def realSubsetMoment (p : RealWord → ℝ) (x : RealWord) (j : ℕ) : ℝ :=
+            ∑ J in realSiteSubsets j, ∑ y in realPatternFiber J (realRestrict x J), p y
+
+          theorem realSubsetMoment_eq_chooseMoment
+              (p : RealWord → ℝ) (x : RealWord) (j : ℕ) :
+              realSubsetMoment p x j =
+                ∑ y : RealWord, p y * (Nat.choose (realAgreementCount x y) j : ℝ) := by
+            classical
+            unfold realSubsetMoment
+            calc
+              (∑ J in realSiteSubsets j,
+                  ∑ y in realPatternFiber J (realRestrict x J), p y) =
+                  ∑ J in realSiteSubsets j,
+                    ∑ y in (Finset.univ : Finset RealWord),
+                      if realRestrict y J = realRestrict x J then p y else 0 := by
+                    apply Finset.sum_congr rfl
+                    intro J hJ
+                    rw [← Finset.sum_filter]
+                    rfl
+              _ = ∑ y in (Finset.univ : Finset RealWord),
+                    ∑ J in realSiteSubsets j,
+                      if realRestrict y J = realRestrict x J then p y else 0 := by
+                    rw [Finset.sum_comm]
+              _ = ∑ y : RealWord,
+                    p y * (Nat.choose (realAgreementCount x y) j : ℝ) := by
+                    apply Finset.sum_congr rfl
+                    intro y hy
+                    rw [← Finset.sum_filter]
+                    rw [real_subset_filter_eq_agreement_powerset]
+                    simp [realAgreementCount, mul_comm]
+
+          theorem real_falling_moment
+              {p : RealWord → ℝ} (D : RealFourUniformOutcome p) (x : RealWord)
+              (j : ℕ) (hj : j ≤ 4) :
+              ∑ y : RealWord, p y * (Nat.choose (realAgreementCount x y) j : ℝ) =
+                (Nat.choose 8 j : ℝ) / (4 : ℝ) ^ j := by
+            rw [← realSubsetMoment_eq_chooseMoment]
+            unfold realSubsetMoment
+            calc
+              (∑ J in realSiteSubsets j,
+                  ∑ y in realPatternFiber J (realRestrict x J), p y) =
+                  ∑ J in realSiteSubsets j, (1 / (4 : ℝ) ^ j) := by
+                    apply Finset.sum_congr rfl
+                    intro J hJ
+                    have hcard : J.card = j := (Finset.mem_powersetCard.mp hJ).2
+                    simpa [hcard] using D.uniform J (by omega) (realRestrict x J)
+              _ = (Nat.choose 8 j : ℝ) / (4 : ℝ) ^ j := by
+                    simp [realSiteSubsets, Finset.card_powersetCard, nsmul_eq_mul]
+
+          def realCertificateP (t : ℕ) : ℝ :=
+            (t : ℝ) * ((t : ℝ) - 1) * ((t : ℝ) - 3) * ((t : ℝ) - 4) / 1120
+
+          theorem realCertificateP_expansion (t : ℕ) (ht : t ≤ 8) :
+              realCertificateP t = (1 / 280 : ℝ) * Nat.choose t 2
+                - (3 / 280 : ℝ) * Nat.choose t 3
+                + (3 / 140 : ℝ) * Nat.choose t 4 := by
+            interval_cases t <;> norm_num [realCertificateP, Nat.choose]
+
+          theorem realCertificateP_nonnegative (t : ℕ) (ht : t ≤ 8) :
+              0 ≤ realCertificateP t := by
+            interval_cases t <;> norm_num [realCertificateP]
+
+          theorem real_generic_sum_linear_three
+              {α : Type} [Fintype α] (p f g h : α → ℝ) (a b c : ℝ) :
+              (∑ x : α, p x * (a * f x - b * g x + c * h x)) =
+                a * (∑ x : α, p x * f x)
+                - b * (∑ x : α, p x * g x)
+                + c * (∑ x : α, p x * h x) := by
+            classical
+            have hp : ∀ x, p x * (a * f x - b * g x + c * h x) =
+                a * (p x * f x) - b * (p x * g x) + c * (p x * h x) := by
+              intro x
+              ring
+            simp_rw [hp]
+            rw [Finset.sum_add_distrib, Finset.sum_sub_distrib]
+            rw [← Finset.mul_sum, ← Finset.mul_sum, ← Finset.mul_sum]
+
+          def realExpectedP (p : RealWord → ℝ) (x : RealWord) : ℝ :=
+            ∑ y : RealWord, p y * realCertificateP (realAgreementCount x y)
+
+          theorem real_expected_P_eq
+              {p : RealWord → ℝ} (D : RealFourUniformOutcome p) (x : RealWord) :
+              realExpectedP p x = 7 / 2560 := by
+            unfold realExpectedP
+            calc
+              (∑ y : RealWord, p y * realCertificateP (realAgreementCount x y)) =
+                  ∑ y : RealWord, p y *
+                    ((1 / 280 : ℝ) * Nat.choose (realAgreementCount x y) 2
+                    - (3 / 280 : ℝ) * Nat.choose (realAgreementCount x y) 3
+                    + (3 / 140 : ℝ) * Nat.choose (realAgreementCount x y) 4) := by
+                      apply Finset.sum_congr rfl
+                      intro y hy
+                      rw [realCertificateP_expansion _ (realAgreementCount_le_eight x y)]
+              _ = (1 / 280 : ℝ) *
+                    (∑ y : RealWord, p y * Nat.choose (realAgreementCount x y) 2)
+                  - (3 / 280 : ℝ) *
+                    (∑ y : RealWord, p y * Nat.choose (realAgreementCount x y) 3)
+                  + (3 / 140 : ℝ) *
+                    (∑ y : RealWord, p y * Nat.choose (realAgreementCount x y) 4) := by
+                      exact real_generic_sum_linear_three p
+                        (fun y => Nat.choose (realAgreementCount x y) 2)
+                        (fun y => Nat.choose (realAgreementCount x y) 3)
+                        (fun y => Nat.choose (realAgreementCount x y) 4)
+                        (1 / 280) (3 / 280) (3 / 140)
+              _ = 7 / 2560 := by
+                    rw [real_falling_moment D x 2 (by norm_num)]
+                    rw [real_falling_moment D x 3 (by norm_num)]
+                    rw [real_falling_moment D x 4 (by norm_num)]
+                    norm_num [Nat.choose]
+
+          theorem real_point_indicator_le_P (x y : RealWord) :
+              (if y = x then (1 : ℝ) else 0) ≤ realCertificateP (realAgreementCount x y) := by
+            by_cases h : y = x
+            · subst y
+              have hm : realAgreementCount x x = 8 := by
+                simp [realAgreementCount, realAgreementSet]
+              simp [hm, realCertificateP]
+            · simp only [h, if_false]
+              exact realCertificateP_nonnegative _ (realAgreementCount_le_eight x y)
+
+          theorem real_atom_bound
+              {p : RealWord → ℝ} (D : RealFourUniformOutcome p) (x : RealWord) :
+              p x ≤ 7 / 2560 := by
+            calc
+              p x = ∑ y : RealWord, p y * (if y = x then (1 : ℝ) else 0) := by
+                classical
+                simp [mul_ite]
+              _ ≤ realExpectedP p x := by
+                unfold realExpectedP
+                apply Finset.sum_le_sum
+                intro y hy
+                exact mul_le_mul_of_nonneg_left (real_point_indicator_le_P x y) (D.nonneg y)
+              _ = 7 / 2560 := real_expected_P_eq D x
+
+          theorem real_sum_supportFiber_eq_fiber
+              (p : RealWord → ℝ) (J : Finset RealSite) (a : RealPattern J) :
+              ∑ x in realOutcomeSupportFiber p J a, p x =
+                ∑ x in realPatternFiber J a, p x := by
+            classical
+            unfold realOutcomeSupportFiber
+            rw [Finset.sum_filter]
+            apply Finset.sum_congr rfl
+            intro x hx
+            by_cases hp : p x = 0 <;> simp [hp]
+
+          theorem real_support_partition
+              (p : RealWord → ℝ) (J : Finset RealSite) :
+              (realOutcomeSupport p).card =
+                ∑ a : RealPattern J, (realOutcomeSupportFiber p J a).card := by
+            classical
+            calc
+              (realOutcomeSupport p).card = ∑ x in realOutcomeSupport p, 1 := by simp
+              _ = ∑ x in realOutcomeSupport p,
+                    ∑ a : RealPattern J, if realRestrict x J = a then 1 else 0 := by
+                      apply Finset.sum_congr rfl
+                      intro x hx
+                      simp
+              _ = ∑ a : RealPattern J,
+                    ∑ x in realOutcomeSupport p, if realRestrict x J = a then 1 else 0 := by
+                      rw [Finset.sum_comm]
+              _ = ∑ a : RealPattern J, (realOutcomeSupportFiber p J a).card := by
+                      apply Finset.sum_congr rfl
+                      intro a ha
+                      simp [realOutcomeSupportFiber, realPatternFiber, realOutcomeSupport,
+                        Finset.filter_comm, and_comm]
+
+          theorem real_pattern_card_256 (J : Finset RealSite) (hJ : J.card = 4) :
+              Fintype.card (RealPattern J) = 256 := by
+            simp [RealPattern, hJ]
+
+          theorem real_each_four_fiber_has_two
+              {p : RealWord → ℝ} (D : RealFourUniformOutcome p)
+              (J : Finset RealSite) (hJ : J.card = 4) (a : RealPattern J) :
+              2 ≤ (realOutcomeSupportFiber p J a).card := by
+            classical
+            have hmass : ∑ x in realOutcomeSupportFiber p J a, p x = 1 / 256 := by
+              rw [real_sum_supportFiber_eq_fiber, D.uniform J (by omega) a]
+              norm_num [hJ]
+            by_contra hnot
+            have hcases : (realOutcomeSupportFiber p J a).card = 0 ∨
+                (realOutcomeSupportFiber p J a).card = 1 := by omega
+            rcases hcases with hzero | hone
+            · have hs : realOutcomeSupportFiber p J a = ∅ := Finset.card_eq_zero.mp hzero
+              rw [hs] at hmass
+              norm_num at hmass
+            · obtain ⟨x, hx⟩ := Finset.card_eq_one.mp hone
+              rw [hx] at hmass
+              simp only [Finset.sum_singleton] at hmass
+              have hatom := real_atom_bound D x
+              linarith
+
+          def realFirstFour : Finset RealSite := {0, 1, 2, 3}
+          theorem realFirstFour_card : realFirstFour.card = 4 := by native_decide
+
+          theorem real_support_at_least_512
+              {p : RealWord → ℝ} (D : RealFourUniformOutcome p) :
+              512 ≤ (realOutcomeSupport p).card := by
+            classical
+            have hsum : (∑ a : RealPattern realFirstFour, 2) ≤
+                ∑ a : RealPattern realFirstFour,
+                  (realOutcomeSupportFiber p realFirstFour a).card := by
+              apply Finset.sum_le_sum
+              intro a ha
+              exact real_each_four_fiber_has_two D realFirstFour realFirstFour_card a
+            calc
+              512 = ∑ a : RealPattern realFirstFour, 2 := by
+                simp [real_pattern_card_256 realFirstFour realFirstFour_card]
+              _ ≤ ∑ a : RealPattern realFirstFour,
+                    (realOutcomeSupportFiber p realFirstFour a).card := hsum
+              _ = (realOutcomeSupport p).card :=
+                    (real_support_partition p realFirstFour).symm
+
+          theorem real_support_512_forces_OA_index_two
+              {p : RealWord → ℝ} (D : RealFourUniformOutcome p)
+              (hsupport : (realOutcomeSupport p).card = 512)
+              (J : Finset RealSite) (hJ : J.card = 4) (a : RealPattern J) :
+              (realOutcomeSupportFiber p J a).card = 2 := by
+            classical
+            have hge := real_each_four_fiber_has_two D J hJ a
+            by_contra hne
+            have hgt : 2 < (realOutcomeSupportFiber p J a).card := by omega
+            have hstrict : (∑ b : RealPattern J, 2) <
+                ∑ b : RealPattern J, (realOutcomeSupportFiber p J b).card := by
+              apply Finset.sum_lt_sum
+              · intro b hb
+                exact real_each_four_fiber_has_two D J hJ b
+              · exact ⟨a, Finset.mem_univ a, hgt⟩
+            have hpartition := real_support_partition p J
+            have hconstant : (∑ b : RealPattern J, 2) = 512 := by
+              simp [real_pattern_card_256 J hJ]
+            rw [hconstant, ← hpartition, hsupport] at hstrict
+            exact (lt_irrefl 512 hstrict)
+
+          end AME84Support512
+          EOF
+          printf '\nimport AME84Support512.RealConcreteOutcome\n' >> AME84Support512.lean
+          rm -rf .lake/build
+          if lake build > build_logs/real_concrete_attempt.log 2>&1; then
+            echo success > /tmp/real-concrete-status
+          else
+            echo failed > /tmp/real-concrete-status
+            cp build_logs/real_concrete_attempt.log /tmp/real_concrete_failed.log
+            cd ..
+            rm -rf ame84-lean
+            cp -a /tmp/ame84-base-v8 ame84-lean
+          fi
+      - name: Final clean build and archive v11
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(cat /tmp/real-concrete-status)
+          cd ame84-lean
+          cp /tmp/real_concrete_failed.log build_logs/ 2>/dev/null || true
+          if [ "$status" = success ]; then
+            cat >> FORMALIZATION_MANIFEST.md <<'EOF'
+
+          ## Real-valued concrete AME-outcome layer added by v11
+          - distributions `p : (Fin 8 → Fin 4) → ℝ` with exact four-party pattern marginals;
+          - falling-factorial moment identities through order four by finite double counting;
+          - exact `7/2560` expectation and per-atom bound;
+          - support at least 512;
+          - support 512 forces two support words in every four-coordinate fiber.
+
+          The local product basis is arbitrary at the probability-model boundary; no support-uniformity or rational-coefficient assumption is used.
+          EOF
+            cat >> THEOREM_MAP.md <<'EOF'
+
+          v11 real concrete exports: `real_falling_moment`, `real_expected_P_eq`, `real_atom_bound`, `real_support_at_least_512`, `real_support_512_forces_OA_index_two`.
+          EOF
+          fi
+          cat > AME84Support512/AxiomReport.lean <<'EOF'
+          import AME84Support512
+          open AME84Support512
+          #print axioms certificatePolynomial_table
+          #print axioms certificate_expectation_arithmetic
+          #print axioms finite_counts
+          #print axioms singleton_forces_distance_five
+          #print axioms conditional_additive_code_exclusion
+          EOF
+          for item in \
+            'P_falling_factorial_expansion' \
+            'expected_P_eq_seven_over_2560' \
+            'atom_eight_le_seven_over_2560' \
+            'support_at_least_512' \
+            'support_512_forces_index_two' \
+            'orthogonal_rows_have_no_single_common_support' \
+            'degree_two_orthogonal_support_is_locally_K22' \
+            'scaled_unitary_iff_normalized_gram' \
+            'balanced_cut_representative_count'; do
+            if grep -Rqs "theorem $item" AME84Support512; then echo "#print axioms $item" >> AME84Support512/AxiomReport.lean; fi
+          done
+          if [ "$status" = success ]; then cat >> AME84Support512/AxiomReport.lean <<'EOF'
+          #print axioms real_falling_moment
+          #print axioms real_expected_P_eq
+          #print axioms real_atom_bound
+          #print axioms real_support_at_least_512
+          #print axioms real_support_512_forces_OA_index_two
+          EOF
+          fi
+          rm -rf .lake/build
+          lake build 2>&1 | tee build_logs/clean_lake_build.log
+          {
+            echo
+            echo '--- environment attestation ---'
+            lean --version
+            lake --version
+            printf 'mathlib_commit='
+            git -C .lake/packages/mathlib rev-parse HEAD
+            echo "real_concrete_outcome=${status}"
+            echo 'lake_build_exit_status=0'
+          } | tee -a build_logs/clean_lake_build.log
+          lake env lean AME84Support512/AxiomReport.lean 2>&1 | tee build_logs/axiom_report_output.log
+          python3 scripts/check_no_placeholders.py
+          cd ..
+          rm -rf ame84-final-v11
+          mkdir ame84-final-v11
+          find ame84-lean -type f -not -path 'ame84-lean/.lake/*' -print0 | sort -z | xargs -0 sha256sum > ame84-lean/MANIFEST.sha256
+          (cd ame84-lean && zip -qr ../ame84-final-v11/AME84_support512_Lean_FINAL_v11.zip . -x '.lake/*')
+          sha256sum ame84-final-v11/AME84_support512_Lean_FINAL_v11.zip > ame84-final-v11/AME84_support512_Lean_FINAL_v11.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AME84-support512-Lean-FINAL-v11
+          path: ame84-final-v11
+          retention-days: 30
+      - name: Commit v11 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'AME84 Lean CI'
+          git config user.email 'actions@users.noreply.github.com'
+          mkdir -p ame84-deliverables
+          cp ame84-final-v11/AME84_support512_Lean_FINAL_v11.zip ame84-deliverables/
+          cp ame84-final-v11/AME84_support512_Lean_FINAL_v11.zip.sha256 ame84-deliverables/
+          git add -f ame84-deliverables/AME84_support512_Lean_FINAL_v11.zip ame84-deliverables/AME84_support512_Lean_FINAL_v11.zip.sha256
+          git commit -m 'Attach AME84 Lean package with real concrete bridge attempt v11' || exit 0
+          git push origin HEAD:ame84-support512-lean-build
