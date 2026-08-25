@@ -88,6 +88,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ame84-lean-project
-          path: ame84-lean
+          path: |
+            ame84-lean
+            !ame84-lean/.lake
           include-hidden-files: true
           retention-days: 30
