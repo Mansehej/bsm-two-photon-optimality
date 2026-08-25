@@ -1,0 +1,101 @@
+name: Publish and expose audited AME84 Lean package v14
+
+on:
+  push:
+    branches: [ame84-support512-lean-build]
+    paths:
+      - '.github/workflows/ame84-lean-release-v14.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ame84-support512-lean-build
+      - name: Obtain latest compiler-clean v13 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for i in $(seq 1 240); do
+            git fetch origin ame84-support512-lean-build
+            if git show origin/ame84-support512-lean-build:ame84-deliverables/AME84_support512_Lean_FINAL_v13.zip > AME84_support512_Lean_FINAL.zip 2>/dev/null; then
+              found=1
+              break
+            fi
+            sleep 10
+          done
+          test "$found" = 1
+          unzip -t AME84_support512_Lean_FINAL.zip
+          rm -rf /tmp/ame84-audit
+          mkdir -p /tmp/ame84-audit
+          unzip -q AME84_support512_Lean_FINAL.zip -d /tmp/ame84-audit
+          test "$(cat /tmp/ame84-audit/lean-toolchain)" = 'leanprover/lean4:v4.32.1'
+          grep -q '520045ab14e26149ee970e2e617ca04b09bde5d6' /tmp/ame84-audit/lakefile.toml
+          grep -q 'lake_build_exit_status=0' /tmp/ame84-audit/build_logs/clean_lake_build.log
+          grep -q 'mathlib_commit=520045ab14e26149ee970e2e617ca04b09bde5d6' /tmp/ame84-audit/build_logs/clean_lake_build.log
+          if grep -RInE '\b(sorry|admit|unsafe)\b|^[[:space:]]*(axiom|opaque)\b' /tmp/ame84-audit --include='*.lean'; then
+            echo 'forbidden Lean placeholder or declaration found' >&2
+            exit 1
+          fi
+          sha256sum AME84_support512_Lean_FINAL.zip > AME84_support512_Lean_FINAL.zip.sha256
+      - name: Expose audit materials on isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ame84-audit/latest
+          mkdir -p ame84-audit/latest/build_logs ame84-audit/latest/sources
+          cp /tmp/ame84-audit/README.md ame84-audit/latest/
+          cp /tmp/ame84-audit/FORMALIZATION_MANIFEST.md ame84-audit/latest/
+          cp /tmp/ame84-audit/THEOREM_MAP.md ame84-audit/latest/
+          cp /tmp/ame84-audit/AXIOM_REPORT.md ame84-audit/latest/
+          cp /tmp/ame84-audit/lean-toolchain ame84-audit/latest/
+          cp /tmp/ame84-audit/lakefile.toml ame84-audit/latest/
+          cp /tmp/ame84-audit/AME84Support512.lean ame84-audit/latest/sources/
+          find /tmp/ame84-audit/AME84Support512 -maxdepth 1 -type f -name '*.lean' -exec cp {} ame84-audit/latest/sources/ \;
+          cp /tmp/ame84-audit/build_logs/clean_lake_build.log ame84-audit/latest/build_logs/
+          cp /tmp/ame84-audit/build_logs/axiom_report_output.log ame84-audit/latest/build_logs/
+          find /tmp/ame84-audit/build_logs -maxdepth 1 -type f -name '*failed*.log' -exec cp {} ame84-audit/latest/build_logs/ \; || true
+          cp AME84_support512_Lean_FINAL.zip.sha256 ame84-audit/latest/
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/ame84-audit')
+          project=(root/'AME84Support512.lean').read_text()
+          imports=[ln.strip() for ln in project.splitlines() if ln.strip().startswith('import ')]
+          src='\n'.join(p.read_text() for p in (root/'AME84Support512').glob('*.lean'))
+          flags={
+            'real_concrete_outcome': 'theorem real_support_at_least_512' in src,
+            'real_equality_OA': 'theorem real_support_512_forces_OA_index_two' in src,
+            'local_K22': 'theorem degree_two_orthogonal_support_is_locally_K22' in src,
+            'block_gram_iff': 'theorem scaled_unitary_iff_normalized_gram' in src,
+            'balanced_cut_count': 'theorem balanced_cut_representative_count' in src,
+            'affine_distance': 'theorem affine_projection_forces_dual_distance_five' in src,
+            'affine_dual_cardinality_proved': 'theorem binaryDualCardinalityLaw' in src,
+          }
+          out=['# Machine audit summary','', '## Root imports']+[f'- `{x}`' for x in imports]
+          out += ['', '## Presence of attempted proof layers']+[f'- {k}: **{str(v).lower()}**' for k,v in flags.items()]
+          out += ['', 'The presence test does not replace the build log or theorem statements; it records which named layers are included in the compiler-clean root project.']
+          Path('ame84-audit/latest/MACHINE_AUDIT_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          PY
+          git config user.name 'AME84 Lean CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f ame84-audit/latest
+          git commit -m 'Expose audited AME84 Lean manifest, sources, and build logs' || true
+          git push origin HEAD:ame84-support512-lean-build
+      - name: Publish fixed release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=ame84-support512-lean-audited-final
+          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$tag" \
+            AME84_support512_Lean_FINAL.zip \
+            AME84_support512_Lean_FINAL.zip.sha256 \
+            --title 'Audited AME(8,4) support-512 Lean package — final' \
+            --notes 'Created only after ZIP integrity, exact pin, captured clean lake build, Mathlib commit attestation, axiom-report, and forbidden-placeholder checks passed. The included manifest sharply separates kernel-proved, conditional, and unformalized claims. This release does not claim unrestricted AME(8,4) existence or nonexistence.'
