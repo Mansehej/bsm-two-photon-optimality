@@ -1,0 +1,119 @@
+name: AME84 Lean core v1
+
+on:
+  push:
+    branches: [ame84-support512-lean-build]
+    paths:
+      - '.github/workflows/ame84-lean-core-v1.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize pinned Lean project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ame84-lean
+          mkdir -p ame84-lean/AME84Support512 ame84-lean/build_logs ame84-lean/scripts
+          cat > ame84-lean/lean-toolchain <<'EOF'
+          leanprover/lean4:v4.32.1
+          EOF
+          cat > ame84-lean/lakefile.toml <<'EOF'
+          name = "ame84_support512"
+          version = "0.1.0"
+          defaultTargets = ["AME84Support512"]
+
+          [[require]]
+          name = "mathlib"
+          git = "https://github.com/leanprover-community/mathlib4.git"
+          rev = "520045ab14e26149ee970e2e617ca04b09bde5d6"
+
+          [[lean_lib]]
+          name = "AME84Support512"
+          EOF
+          cat > ame84-lean/AME84Support512.lean <<'EOF'
+          import AME84Support512.Core
+          EOF
+          cat > ame84-lean/AME84Support512/Core.lean <<'EOF'
+          import Mathlib
+
+          namespace AME84Support512
+
+          theorem exact_pin_smoke : (Nat.choose 8 4 = 70) ∧ (70 / 2 = 35) ∧ (512 / 4 = 128) := by
+            norm_num [Nat.choose]
+
+          theorem polynomial_arithmetic :
+              (1 / 160 : ℚ) - 3 / 320 + 3 / 512 = 7 / 2560 := by
+            norm_num
+
+          #print axioms exact_pin_smoke
+          #print axioms polynomial_arithmetic
+
+          end AME84Support512
+          EOF
+          cat > ame84-lean/README.md <<'EOF'
+          # AME(8,4) support-512 Lean formalization
+
+          Environment smoke test for Lean 4.32.1 and Mathlib commit 520045ab14e26149ee970e2e617ca04b09bde5d6.
+          EOF
+          cat > ame84-lean/FORMALIZATION_MANIFEST.md <<'EOF'
+          # Formalization manifest
+
+          Initial environment and exact finite-arithmetic smoke test.
+          EOF
+          cat > ame84-lean/THEOREM_MAP.md <<'EOF'
+          # Theorem map
+
+          - `exact_pin_smoke`: finite cut/block counts.
+          - `polynomial_arithmetic`: exact rational atom-certificate arithmetic.
+          EOF
+          cat > ame84-lean/AXIOM_REPORT.md <<'EOF'
+          # Axiom report
+
+          Generated `#print axioms` output is captured in `build_logs/axiom_report_output.log`.
+          EOF
+          cat > ame84-lean/scripts/check_no_placeholders.py <<'EOF'
+          from pathlib import Path
+          import re, sys
+          bad = []
+          for path in Path('.').rglob('*.lean'):
+              text = path.read_text(encoding='utf-8')
+              for pattern in [r'\bsorry\b', r'\badmit\b', r'\bunsafe\b', r'^\s*axiom\b', r'^\s*opaque\b']:
+                  if re.search(pattern, text, flags=re.MULTILINE):
+                      bad.append((str(path), pattern))
+          if bad:
+              print(bad)
+              sys.exit(1)
+          print('placeholder scan: clean')
+          EOF
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: ame84-lean
+          use-github-cache: true
+      - name: Fetch Mathlib cache
+        working-directory: ame84-lean
+        run: lake exe cache get
+      - name: Clean lake build
+        working-directory: ame84-lean
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .lake/build
+          lake build 2>&1 | tee build_logs/clean_lake_build.log
+      - name: Capture axiom output
+        working-directory: ame84-lean
+        shell: bash
+        run: |
+          set -euo pipefail
+          lake env lean AME84Support512/Core.lean 2>&1 | tee build_logs/axiom_report_output.log
+      - name: Reject placeholders
+        working-directory: ame84-lean
+        run: python3 scripts/check_no_placeholders.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ame84-lean-core-v1
+          path: ame84-lean
+          include-hidden-files: true
+          retention-days: 30
