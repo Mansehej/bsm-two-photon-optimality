@@ -1,0 +1,309 @@
+name: AME84 binary-affine dual-distance attempt v13
+
+on:
+  push:
+    branches: [ame84-support512-lean-build]
+    paths:
+      - '.github/workflows/ame84-lean-affine-distance-v13.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ame84-support512-lean-build
+      - name: Obtain v11 compiler-clean base
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for i in $(seq 1 210); do
+            git fetch origin ame84-support512-lean-build
+            if git show origin/ame84-support512-lean-build:ame84-deliverables/AME84_support512_Lean_FINAL_v11.zip > /tmp/ame84-v11.zip 2>/dev/null; then
+              found=1; break
+            fi
+            sleep 10
+          done
+          test "$found" = 1
+          rm -rf ame84-lean
+          mkdir ame84-lean
+          unzip -q /tmp/ame84-v11.zip -d ame84-lean
+          cp -a ame84-lean /tmp/ame84-base-v11
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: ame84-lean
+          use-github-cache: true
+      - name: Attempt binary-affine projection to dual distance-five reduction
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd ame84-lean
+          cat > AME84Support512/BinaryAffineDistance.lean <<'EOF'
+          import AME84Support512.Baseline
+
+          open scoped BigOperators
+
+          namespace AME84Support512
+
+          abbrev F2 := ZMod 2
+          abbrev AffineSite := Fin 8
+          abbrev AffineWord := Fin 8 → (F2 × F2)
+          abbrev AffinePattern (I : Finset AffineSite) := I → (F2 × F2)
+
+          def restrictAffine (x : AffineWord) (I : Finset AffineSite) : AffinePattern I :=
+            fun i => x i.1
+
+          def binaryDot (x y : AffineWord) : F2 :=
+            ∑ i : AffineSite, (x i).1 * (y i).1 + (x i).2 * (y i).2
+
+          def binaryDotHom (x : AffineWord) : AffineWord →+ F2 where
+            toFun := binaryDot x
+            map_zero' := by simp [binaryDot]
+            map_add' y z := by
+              classical
+              simp [binaryDot, mul_add, Finset.sum_add_distrib]
+              ring
+
+          def affineDualCarrier (V : AddSubgroup AffineWord) : AddSubgroup AffineWord :=
+            ⨅ x : V, (binaryDotHom x.1).ker
+
+          theorem mem_affineDualCarrier_iff
+              (V : AddSubgroup AffineWord) (y : AffineWord) :
+              y ∈ affineDualCarrier V ↔ ∀ x : V, binaryDot x.1 y = 0 := by
+            simp [affineDualCarrier, binaryDotHom]
+
+          def affineBlockSupport (y : AffineWord) : Finset AffineSite :=
+            Finset.univ.filter fun i => y i ≠ 0
+
+          theorem affineBlockSupport_card (y : AffineWord) :
+              (affineBlockSupport y).card = blockWeight y := by
+            rfl
+
+          def unitFirst (i : AffineSite) (a : F2) : AffineWord :=
+            fun j => if j = i then (a, 0) else 0
+
+          def unitSecond (i : AffineSite) (a : F2) : AffineWord :=
+            fun j => if j = i then (0, a) else 0
+
+          theorem binaryDot_unitFirst (i : AffineSite) (a : F2) (y : AffineWord) :
+              binaryDot (unitFirst i a) y = a * (y i).1 := by
+            classical
+            unfold binaryDot unitFirst
+            rw [Finset.sum_eq_single i]
+            · simp
+            · intro j hj hji
+              simp [hji]
+            · simp
+
+          theorem binaryDot_unitSecond (i : AffineSite) (a : F2) (y : AffineWord) :
+              binaryDot (unitSecond i a) y = a * (y i).2 := by
+            classical
+            unfold binaryDot unitSecond
+            rw [Finset.sum_eq_single i]
+            · simp
+            · intro j hj hji
+              simp [hji]
+            · simp
+
+          theorem binaryDot_eq_of_agree_on_support
+              (x z y : AffineWord)
+              (hagree : ∀ i, i ∈ affineBlockSupport y → x i = z i) :
+              binaryDot x y = binaryDot z y := by
+            classical
+            unfold binaryDot
+            apply Finset.sum_congr rfl
+            intro i hi
+            by_cases his : i ∈ affineBlockSupport y
+            · rw [hagree i his]
+            · have hyzero : y i = 0 := by
+                simpa [affineBlockSupport] using his
+              simp [hyzero]
+
+          structure BinaryAffineOA512 where
+            V : AddSubgroup AffineWord
+            cardV : Fintype.card V = 512
+            projection_surjective : ∀ (I : Finset AffineSite), I.card ≤ 4 →
+              Function.Surjective (fun x : V => restrictAffine x.1 I)
+
+          def BinaryAffineOA512.dualCode (A : BinaryAffineOA512) : AdditiveQuaternaryCode8 where
+            carrier := affineDualCarrier A.V
+
+          theorem affine_projection_forces_dual_distance_five
+              (A : BinaryAffineOA512) : DistanceAtLeast A.dualCode 5 := by
+            intro y hyzero
+            change 5 ≤ blockWeight y.1
+            by_contra hnot
+            have hweight : blockWeight y.1 ≤ 4 := by omega
+            have hsupport : (affineBlockSupport y.1).card ≤ 4 := by
+              simpa [affineBlockSupport_card] using hweight
+            have hnonzeroBlock : ∃ i, y.1 i ≠ 0 := by
+              by_contra h
+              push_neg at h
+              apply hyzero
+              funext i
+              exact h i
+            obtain ⟨i, hi⟩ := hnonzeroBlock
+            have hiSupport : i ∈ affineBlockSupport y.1 := by
+              simp [affineBlockSupport, hi]
+            have hdual := (mem_affineDualCarrier_iff A.V y.1).mp y.2
+            by_cases hfirst : (y.1 i).1 ≠ 0
+            · let z := unitFirst i ((y.1 i).1)⁻¹
+              obtain ⟨x, hx⟩ := A.projection_surjective
+                (affineBlockSupport y.1) hsupport (restrictAffine z (affineBlockSupport y.1))
+              have hagree : ∀ j, j ∈ affineBlockSupport y.1 → x.1 j = z j := by
+                intro j hj
+                have hfun := congrFun hx ⟨j, hj⟩
+                exact hfun
+              have hdot : binaryDot x.1 y.1 = 1 := by
+                calc
+                  binaryDot x.1 y.1 = binaryDot z y.1 :=
+                    binaryDot_eq_of_agree_on_support x.1 z y.1 hagree
+                  _ = ((y.1 i).1)⁻¹ * (y.1 i).1 := binaryDot_unitFirst i _ y.1
+                  _ = 1 := inv_mul_cancel₀ hfirst
+              have hz := hdual x
+              rw [hdot] at hz
+              norm_num at hz
+            · have hfirstZero : (y.1 i).1 = 0 := not_ne_iff.mp hfirst
+              have hsecond : (y.1 i).2 ≠ 0 := by
+                intro hsecondZero
+                apply hi
+                exact Prod.ext hfirstZero hsecondZero
+              let z := unitSecond i ((y.1 i).2)⁻¹
+              obtain ⟨x, hx⟩ := A.projection_surjective
+                (affineBlockSupport y.1) hsupport (restrictAffine z (affineBlockSupport y.1))
+              have hagree : ∀ j, j ∈ affineBlockSupport y.1 → x.1 j = z j := by
+                intro j hj
+                have hfun := congrFun hx ⟨j, hj⟩
+                exact hfun
+              have hdot : binaryDot x.1 y.1 = 1 := by
+                calc
+                  binaryDot x.1 y.1 = binaryDot z y.1 :=
+                    binaryDot_eq_of_agree_on_support x.1 z y.1 hagree
+                  _ = ((y.1 i).2)⁻¹ * (y.1 i).2 := binaryDot_unitSecond i _ y.1
+                  _ = 1 := inv_mul_cancel₀ hsecond
+              have hz := hdual x
+              rw [hdot] at hz
+              norm_num at hz
+
+          theorem affine_to_target_parameters_of_dual_card
+              (A : BinaryAffineOA512)
+              (hdualCard : Fintype.card A.dualCode.carrier = 128) :
+              HasTargetAdditiveParameters A.dualCode := by
+            exact ⟨hdualCard, affine_projection_forces_dual_distance_five A⟩
+
+          def BinaryDualCardinalityLaw : Prop :=
+            ∀ A : BinaryAffineOA512, Fintype.card A.dualCode.carrier = 128
+
+          theorem conditional_affine_exclusion_with_explicit_cardinality_bridge
+              (hcard : BinaryDualCardinalityLaw)
+              (hKurz : KurzNThreePointFiveSThreeEqSeven) :
+              ¬ Nonempty BinaryAffineOA512 := by
+            rintro ⟨A⟩
+            exact hKurz A.dualCode
+              (affine_to_target_parameters_of_dual_card A (hcard A))
+
+          theorem affine_parameter_checks :
+              2 ^ 9 = 512 ∧ 16 - 9 = 7 ∧ 2 ^ 7 = 128 ∧ 8 - 5 = 3 := by
+            norm_num
+
+          end AME84Support512
+          EOF
+          printf '\nimport AME84Support512.BinaryAffineDistance\n' >> AME84Support512.lean
+          rm -rf .lake/build
+          if lake build > build_logs/binary_affine_distance_attempt.log 2>&1; then
+            echo success > /tmp/affine-status
+          else
+            echo failed > /tmp/affine-status
+            cp build_logs/binary_affine_distance_attempt.log /tmp/affine_failed.log
+            cd ..
+            rm -rf ame84-lean
+            cp -a /tmp/ame84-base-v11 ame84-lean
+          fi
+      - name: Final clean build and archive v13
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(cat /tmp/affine-status)
+          cd ame84-lean
+          cp /tmp/affine_failed.log build_logs/ 2>/dev/null || true
+          if [ "$status" = success ]; then
+            cat >> FORMALIZATION_MANIFEST.md <<'EOF'
+
+          ## Binary-affine distance layer added by v13
+          - binary ququart convention `(ZMod 2 × ZMod 2)^8`;
+          - additive dual defined as the intersection of kernels of the binary dot-product homomorphisms;
+          - four-block projection surjectivity implies dual block distance at least five;
+          - with an explicit dual-cardinality premise, the code has additive target parameters of size 128 and distance at least five.
+
+          `BinaryDualCardinalityLaw` is **not proved** here. Therefore the only affine exclusion theorem also takes that law explicitly, in addition to the Kurz classification hypothesis. This is not presented as the requested assumption-free affine-to-code reduction.
+          EOF
+            cat >> THEOREM_MAP.md <<'EOF'
+
+          v13 exports: `affine_projection_forces_dual_distance_five`, `affine_to_target_parameters_of_dual_card`, and the doubly conditional `conditional_affine_exclusion_with_explicit_cardinality_bridge`.
+          EOF
+          fi
+          cat > AME84Support512/AxiomReport.lean <<'EOF'
+          import AME84Support512
+          open AME84Support512
+          #print axioms certificatePolynomial_table
+          #print axioms certificate_expectation_arithmetic
+          #print axioms finite_counts
+          #print axioms singleton_forces_distance_five
+          #print axioms conditional_additive_code_exclusion
+          EOF
+          for item in \
+            P_falling_factorial_expansion expected_P_eq_seven_over_2560 \
+            atom_eight_le_seven_over_2560 support_at_least_512 support_512_forces_index_two \
+            orthogonal_rows_have_no_single_common_support degree_two_orthogonal_support_is_locally_K22 \
+            scaled_unitary_iff_normalized_gram balanced_cut_representative_count \
+            real_falling_moment real_expected_P_eq real_atom_bound real_support_at_least_512 \
+            real_support_512_forces_OA_index_two; do
+            if grep -Rqs "theorem $item" AME84Support512; then echo "#print axioms $item" >> AME84Support512/AxiomReport.lean; fi
+          done
+          if [ "$status" = success ]; then cat >> AME84Support512/AxiomReport.lean <<'EOF'
+          #print axioms affine_projection_forces_dual_distance_five
+          #print axioms affine_to_target_parameters_of_dual_card
+          #print axioms conditional_affine_exclusion_with_explicit_cardinality_bridge
+          EOF
+          fi
+          rm -rf .lake/build
+          lake build 2>&1 | tee build_logs/clean_lake_build.log
+          {
+            echo
+            echo '--- environment attestation ---'
+            lean --version
+            lake --version
+            printf 'mathlib_commit='
+            git -C .lake/packages/mathlib rev-parse HEAD
+            echo "binary_affine_distance=${status}"
+            echo 'lake_build_exit_status=0'
+          } | tee -a build_logs/clean_lake_build.log
+          lake env lean AME84Support512/AxiomReport.lean 2>&1 | tee build_logs/axiom_report_output.log
+          python3 scripts/check_no_placeholders.py
+          cd ..
+          rm -rf ame84-final-v13
+          mkdir ame84-final-v13
+          find ame84-lean -type f -not -path 'ame84-lean/.lake/*' -print0 | sort -z | xargs -0 sha256sum > ame84-lean/MANIFEST.sha256
+          (cd ame84-lean && zip -qr ../ame84-final-v13/AME84_support512_Lean_FINAL_v13.zip . -x '.lake/*')
+          sha256sum ame84-final-v13/AME84_support512_Lean_FINAL_v13.zip > ame84-final-v13/AME84_support512_Lean_FINAL_v13.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AME84-support512-Lean-FINAL-v13
+          path: ame84-final-v13
+          retention-days: 30
+      - name: Commit v13 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'AME84 Lean CI'
+          git config user.email 'actions@users.noreply.github.com'
+          mkdir -p ame84-deliverables
+          cp ame84-final-v13/AME84_support512_Lean_FINAL_v13.zip ame84-deliverables/
+          cp ame84-final-v13/AME84_support512_Lean_FINAL_v13.zip.sha256 ame84-deliverables/
+          git add -f ame84-deliverables/AME84_support512_Lean_FINAL_v13.zip ame84-deliverables/AME84_support512_Lean_FINAL_v13.zip.sha256
+          git commit -m 'Attach AME84 Lean package with binary-affine distance attempt v13' || exit 0
+          git push origin HEAD:ame84-support512-lean-build
