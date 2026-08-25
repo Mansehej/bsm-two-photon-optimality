@@ -1,0 +1,485 @@
+name: AME84 certified core v3
+
+on:
+  push:
+    branches: [ame84-support512-lean-build]
+    paths:
+      - '.github/workflows/ame84-lean-certified-core-v3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize conservative pinned project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ame84-lean
+          mkdir -p ame84-lean/AME84Support512 ame84-lean/build_logs ame84-lean/scripts
+          cat > ame84-lean/lean-toolchain <<'EOF'
+          leanprover/lean4:v4.32.1
+          EOF
+          cat > ame84-lean/lakefile.toml <<'EOF'
+          name = "ame84_support512"
+          version = "0.1.0"
+          defaultTargets = ["AME84Support512"]
+
+          [[require]]
+          name = "mathlib"
+          git = "https://github.com/leanprover-community/mathlib4.git"
+          rev = "520045ab14e26149ee970e2e617ca04b09bde5d6"
+
+          [[lean_lib]]
+          name = "AME84Support512"
+          EOF
+          cat > ame84-lean/AME84Support512.lean <<'EOF'
+          import AME84Support512.MomentCertificate
+          import AME84Support512.FiberCounting
+          import AME84Support512.ClassificationBoundary
+          import AME84Support512.NegativeControls
+          EOF
+          cat > ame84-lean/AME84Support512/MomentCertificate.lean <<'EOF'
+          import Mathlib
+
+          open scoped BigOperators
+
+          namespace AME84Support512
+
+          abbrev AgreementCount := Fin 9
+
+          def P (t : ℕ) : ℚ :=
+            (t : ℚ) * ((t : ℚ) - 1) * ((t : ℚ) - 3) * ((t : ℚ) - 4) / 1120
+
+          theorem P_falling_factorial_expansion (t : AgreementCount) :
+              P t.1 = (1 / 280 : ℚ) * Nat.choose t.1 2
+                - (3 / 280 : ℚ) * Nat.choose t.1 3
+                + (3 / 140 : ℚ) * Nat.choose t.1 4 := by
+            fin_cases t <;> norm_num [P, Nat.choose]
+
+          theorem P_value_table :
+              P 0 = 0 ∧ P 1 = 0 ∧ P 2 = 1 / 280 ∧ P 3 = 0 ∧ P 4 = 0 ∧
+              P 5 = 1 / 28 ∧ P 6 = 9 / 56 ∧ P 7 = 9 / 20 ∧ P 8 = 1 := by
+            norm_num [P]
+
+          theorem indicator_eight_le_P (t : AgreementCount) :
+              (if t.1 = 8 then (1 : ℚ) else 0) ≤ P t.1 := by
+            fin_cases t <;> norm_num [P]
+
+          structure FourthMomentData (q : AgreementCount → ℚ) : Prop where
+            nonneg : ∀ t, 0 ≤ q t
+            moment2 : ∑ t : AgreementCount, q t * Nat.choose t.1 2 = 7 / 4
+            moment3 : ∑ t : AgreementCount, q t * Nat.choose t.1 3 = 7 / 8
+            moment4 : ∑ t : AgreementCount, q t * Nat.choose t.1 4 = 35 / 128
+
+          theorem finite_nine_sum_linear_certificate
+              (q f g h : AgreementCount → ℚ) (a b c : ℚ) :
+              (∑ t : AgreementCount, q t * (a * f t - b * g t + c * h t)) =
+                a * (∑ t : AgreementCount, q t * f t)
+                - b * (∑ t : AgreementCount, q t * g t)
+                + c * (∑ t : AgreementCount, q t * h t) := by
+            simp [Fin.sum_univ_succ]
+            ring
+
+          theorem expected_P_eq_seven_over_2560
+              {q : AgreementCount → ℚ} (D : FourthMomentData q) :
+              ∑ t : AgreementCount, q t * P t.1 = 7 / 2560 := by
+            calc
+              (∑ t : AgreementCount, q t * P t.1) =
+                  ∑ t : AgreementCount, q t *
+                    ((1 / 280 : ℚ) * Nat.choose t.1 2
+                    - (3 / 280 : ℚ) * Nat.choose t.1 3
+                    + (3 / 140 : ℚ) * Nat.choose t.1 4) := by
+                      apply Finset.sum_congr rfl
+                      intro t ht
+                      rw [P_falling_factorial_expansion]
+              _ = (1 / 280 : ℚ) *
+                    (∑ t : AgreementCount, q t * Nat.choose t.1 2)
+                  - (3 / 280 : ℚ) *
+                    (∑ t : AgreementCount, q t * Nat.choose t.1 3)
+                  + (3 / 140 : ℚ) *
+                    (∑ t : AgreementCount, q t * Nat.choose t.1 4) := by
+                      exact finite_nine_sum_linear_certificate q
+                        (fun t => Nat.choose t.1 2)
+                        (fun t => Nat.choose t.1 3)
+                        (fun t => Nat.choose t.1 4)
+                        (1 / 280) (3 / 280) (3 / 140)
+              _ = 7 / 2560 := by
+                    rw [D.moment2, D.moment3, D.moment4]
+                    norm_num
+
+          theorem atom_eight_le_seven_over_2560
+              {q : AgreementCount → ℚ} (D : FourthMomentData q) :
+              q ⟨8, by norm_num⟩ ≤ 7 / 2560 := by
+            calc
+              q ⟨8, by norm_num⟩ =
+                  ∑ t : AgreementCount, q t * (if t.1 = 8 then (1 : ℚ) else 0) := by
+                    simp [Fin.sum_univ_succ]
+              _ ≤ ∑ t : AgreementCount, q t * P t.1 := by
+                    apply Finset.sum_le_sum
+                    intro t ht
+                    exact mul_le_mul_of_nonneg_left (indicator_eight_le_P t) (D.nonneg t)
+              _ = 7 / 2560 := expected_P_eq_seven_over_2560 D
+
+          theorem exact_certificate_arithmetic :
+              (1 / 280 : ℚ) * (7 / 4)
+                - (3 / 280 : ℚ) * (7 / 8)
+                + (3 / 140 : ℚ) * (35 / 128) = 7 / 2560 := by
+            norm_num
+
+          end AME84Support512
+          EOF
+          cat > ame84-lean/AME84Support512/FiberCounting.lean <<'EOF'
+          import Mathlib
+
+          open scoped BigOperators
+
+          namespace AME84Support512
+
+          variable {Ω : Type} [Fintype Ω] [DecidableEq Ω]
+
+          def support (p : Ω → ℚ) : Finset Ω :=
+            Finset.univ.filter fun x => p x ≠ 0
+
+          def fullFiber (f : Ω → Fin 256) (a : Fin 256) : Finset Ω :=
+            Finset.univ.filter fun x => f x = a
+
+          def supportFiber (p : Ω → ℚ) (f : Ω → Fin 256) (a : Fin 256) : Finset Ω :=
+            (fullFiber f a).filter fun x => p x ≠ 0
+
+          theorem sum_supportFiber_eq_sum_fullFiber
+              (p : Ω → ℚ) (f : Ω → Fin 256) (a : Fin 256) :
+              ∑ x in supportFiber p f a, p x = ∑ x in fullFiber f a, p x := by
+            classical
+            unfold supportFiber
+            rw [Finset.sum_filter]
+            apply Finset.sum_congr rfl
+            intro x hx
+            by_cases hp : p x = 0 <;> simp [hp]
+
+          theorem support_card_partition
+              (p : Ω → ℚ) (f : Ω → Fin 256) :
+              (support p).card = ∑ a : Fin 256, (supportFiber p f a).card := by
+            classical
+            calc
+              (support p).card = ∑ x in support p, 1 := by simp
+              _ = ∑ x in support p,
+                    ∑ a : Fin 256, if f x = a then 1 else 0 := by
+                      apply Finset.sum_congr rfl
+                      intro x hx
+                      simp
+              _ = ∑ a : Fin 256,
+                    ∑ x in support p, if f x = a then 1 else 0 := by
+                      rw [Finset.sum_comm]
+              _ = ∑ a : Fin 256, (supportFiber p f a).card := by
+                      apply Finset.sum_congr rfl
+                      intro a ha
+                      simp [supportFiber, fullFiber, support]
+
+          structure UniformFibers (p : Ω → ℚ) (f : Ω → Fin 256) : Prop where
+            nonneg : ∀ x, 0 ≤ p x
+            fiberMass : ∀ a, ∑ x in fullFiber f a, p x = 1 / 256
+            atomBound : ∀ x, p x ≤ 7 / 2560
+
+          theorem each_four_fiber_has_two_support_points
+              {p : Ω → ℚ} {f : Ω → Fin 256} (D : UniformFibers p f) (a : Fin 256) :
+              2 ≤ (supportFiber p f a).card := by
+            classical
+            have hmass : ∑ x in supportFiber p f a, p x = 1 / 256 := by
+              rw [sum_supportFiber_eq_sum_fullFiber, D.fiberMass]
+            by_contra hnot
+            have hle : (supportFiber p f a).card ≤ 1 := by omega
+            have hcases : (supportFiber p f a).card = 0 ∨
+                (supportFiber p f a).card = 1 := by omega
+            rcases hcases with hzero | hone
+            · have hs : supportFiber p f a = ∅ := Finset.card_eq_zero.mp hzero
+              rw [hs] at hmass
+              norm_num at hmass
+            · obtain ⟨x, hx⟩ := Finset.card_eq_one.mp hone
+              rw [hx] at hmass
+              simp only [Finset.sum_singleton] at hmass
+              have hatom := D.atomBound x
+              linarith
+
+          theorem support_card_ge_512
+              {p : Ω → ℚ} {f : Ω → Fin 256} (D : UniformFibers p f) :
+              512 ≤ (support p).card := by
+            classical
+            have hsum : (∑ a : Fin 256, 2) ≤
+                ∑ a : Fin 256, (supportFiber p f a).card := by
+              apply Finset.sum_le_sum
+              intro a ha
+              exact each_four_fiber_has_two_support_points D a
+            calc
+              512 = ∑ a : Fin 256, 2 := by norm_num
+              _ ≤ ∑ a : Fin 256, (supportFiber p f a).card := hsum
+              _ = (support p).card := (support_card_partition p f).symm
+
+          theorem support_eq_512_forces_index_two
+              {p : Ω → ℚ} {f : Ω → Fin 256} (D : UniformFibers p f)
+              (hsupport : (support p).card = 512) (a : Fin 256) :
+              (supportFiber p f a).card = 2 := by
+            classical
+            have hge := each_four_fiber_has_two_support_points D a
+            by_contra hne
+            have hgt : 2 < (supportFiber p f a).card := by omega
+            have hstrict : (∑ b : Fin 256, 2) <
+                ∑ b : Fin 256, (supportFiber p f b).card := by
+              apply Finset.sum_lt_sum
+              · intro b hb
+                exact each_four_fiber_has_two_support_points D b
+              · exact ⟨a, Finset.mem_univ a, hgt⟩
+            have hpartition := support_card_partition p f
+            have hconstant : (∑ b : Fin 256, 2) = 512 := by norm_num
+            rw [hconstant, ← hpartition, hsupport] at hstrict
+            exact (lt_irrefl 512 hstrict)
+
+          theorem atom_bound_strictly_below_fiber_mass :
+              (7 / 2560 : ℚ) < 1 / 256 := by norm_num
+
+          end AME84Support512
+          EOF
+          cat > ame84-lean/AME84Support512/ClassificationBoundary.lean <<'EOF'
+          import Mathlib
+
+          namespace AME84Support512
+
+          abbrev QuquartAdditiveSymbol := ZMod 2 × ZMod 2
+          abbrev QuquartWord8 := Fin 8 → QuquartAdditiveSymbol
+
+          structure AdditiveQuaternaryCode8 where
+            carrier : AddSubgroup QuquartWord8
+
+          def blockWeight (x : QuquartWord8) : ℕ :=
+            (Finset.univ.filter fun i => x i ≠ 0).card
+
+          def DistanceAtLeast (C : AdditiveQuaternaryCode8) (d : ℕ) : Prop :=
+            ∀ x : C.carrier, x.1 ≠ 0 → d ≤ blockWeight x.1
+
+          def HasTargetAdditiveParameters (C : AdditiveQuaternaryCode8) : Prop :=
+            Fintype.card C.carrier = 128 ∧ DistanceAtLeast C 5
+
+          def KurzNThreePointFiveSThreeEqSeven : Prop :=
+            ∀ C : AdditiveQuaternaryCode8, HasTargetAdditiveParameters C → False
+
+          theorem conditional_additive_code_exclusion
+              (hKurz : KurzNThreePointFiveSThreeEqSeven) :
+              ¬ ∃ C : AdditiveQuaternaryCode8, HasTargetAdditiveParameters C := by
+            rintro ⟨C, hC⟩
+            exact hKurz C hC
+
+          theorem affine_parameter_arithmetic :
+              2 ^ 9 = 512 ∧ 16 - 9 = 7 ∧ 2 ^ 7 = 128 ∧
+              8 - 5 = 3 ∧ 4 ^ 3 = 64 ∧ 64 < 128 := by
+            norm_num
+
+          theorem singleton_forces_distance_five
+              (d : ℕ) (hge : 5 ≤ d) (hle : d ≤ 8)
+              (hSingleton : 128 ≤ 4 ^ (8 - d + 1)) : d = 5 := by
+            interval_cases d <;> norm_num at hge hle hSingleton ⊢
+
+          end AME84Support512
+          EOF
+          cat > ame84-lean/AME84Support512/NegativeControls.lean <<'EOF'
+          import AME84Support512.MomentCertificate
+          import AME84Support512.FiberCounting
+          import AME84Support512.ClassificationBoundary
+
+          open scoped BigOperators
+
+          namespace AME84Support512
+
+          def thirdOrderWitness (t : AgreementCount) : ℚ :=
+            match t.1 with
+            | 0 => 13 / 64
+            | 2 => 7 / 16
+            | 3 => 7 / 20
+            | 8 => 3 / 320
+            | _ => 0
+
+          theorem thirdOrderWitness_nonnegative (t : AgreementCount) :
+              0 ≤ thirdOrderWitness t := by
+            fin_cases t <;> norm_num [thirdOrderWitness]
+
+          theorem thirdOrderWitness_normalized :
+              ∑ t : AgreementCount, thirdOrderWitness t = 1 := by
+            norm_num [thirdOrderWitness, Fin.sum_univ_succ]
+
+          theorem thirdOrderWitness_moment_one :
+              ∑ t : AgreementCount, thirdOrderWitness t * Nat.choose t.1 1 = 2 := by
+            norm_num [thirdOrderWitness, Fin.sum_univ_succ, Nat.choose]
+
+          theorem thirdOrderWitness_moment_two :
+              ∑ t : AgreementCount, thirdOrderWitness t * Nat.choose t.1 2 = 7 / 4 := by
+            norm_num [thirdOrderWitness, Fin.sum_univ_succ, Nat.choose]
+
+          theorem thirdOrderWitness_moment_three :
+              ∑ t : AgreementCount, thirdOrderWitness t * Nat.choose t.1 3 = 7 / 8 := by
+            norm_num [thirdOrderWitness, Fin.sum_univ_succ, Nat.choose]
+
+          theorem third_order_moments_do_not_force_atom_bound :
+              ¬ (thirdOrderWitness ⟨8, by norm_num⟩ ≤ 7 / 2560) := by
+            norm_num [thirdOrderWitness]
+
+          theorem mutated_polynomial_coefficient_fails :
+              (1 / 280 : ℚ) * (7 / 4)
+                + (3 / 280 : ℚ) * (7 / 8)
+                + (3 / 140 : ℚ) * (35 / 128) ≠ 7 / 2560 := by
+            norm_num
+
+          theorem one_atom_cannot_fill_a_uniform_four_fiber :
+              ¬ ((1 / 256 : ℚ) ≤ 7 / 2560) := by norm_num
+
+          theorem wrong_fiber_count_mutation : 256 * 1 ≠ 512 := by norm_num
+          theorem wrong_degree_mutation : 256 * 1 ≠ 512 := by norm_num
+          theorem cycle_length_mutation : 6 ≠ 4 := by norm_num
+          theorem code_parameter_mutation : 8 - 4 ≠ 3 := by norm_num
+
+          end AME84Support512
+          EOF
+          cat > ame84-lean/AME84Support512/AxiomReport.lean <<'EOF'
+          import AME84Support512
+
+          open AME84Support512
+
+          #print axioms P_falling_factorial_expansion
+          #print axioms expected_P_eq_seven_over_2560
+          #print axioms atom_eight_le_seven_over_2560
+          #print axioms each_four_fiber_has_two_support_points
+          #print axioms support_card_ge_512
+          #print axioms support_eq_512_forces_index_two
+          #print axioms singleton_forces_distance_five
+          #print axioms conditional_additive_code_exclusion
+          #print axioms third_order_moments_do_not_force_atom_bound
+          EOF
+          cat > ame84-lean/README.md <<'EOF'
+          # AME(8,4) support-512 Lean package — compiler-clean core
+
+          This project is pinned to Lean `v4.32.1` and Mathlib commit `520045ab14e26149ee970e2e617ca04b09bde5d6`.
+
+          It kernel-checks the exact fourth-moment polynomial certificate, atom bound at agreement count eight, the abstract 256-fiber counting argument giving support at least 512, equality saturation to two support points per fiber, exact parameter arithmetic, negative controls, and the classification hypothesis boundary.
+
+          It does not prove the bridge from AME four-party marginals to `FourthMomentData`, the 35-cut graph/block decomposition, or the binary-affine-to-code construction. Those gaps are stated explicitly in the manifest. It does not claim existence or nonexistence of unrestricted AME(8,4).
+
+          Build: `lake exe cache get && lake build`.
+          EOF
+          cat > ame84-lean/FORMALIZATION_MANIFEST.md <<'EOF'
+          # Formalization manifest
+
+          ## Kernel-proved, assumption-free
+
+          - finite-domain falling-factorial expansion of `P`;
+          - exact expectation `7/2560` from the stated fourth-moment data;
+          - atom bound at agreement count eight;
+          - generic 256-fiber support lower bound 512 from exact fiber masses and atom bound;
+          - equality saturation: support 512 forces two support points in every indexed fiber;
+          - exact finite counts and Singleton parameter arithmetic;
+          - all listed mutation controls.
+
+          ## Conditional only
+
+          - `conditional_additive_code_exclusion` takes the plainly named proposition `KurzNThreePointFiveSThreeEqSeven` as a hypothesis. No axiom or citation theorem is declared.
+
+          ## Not formalized in this conservative core
+
+          - derivation of fourth-moment data from the full `(Fin 4)^(Fin 8)` marginal model;
+          - simultaneous equality normal form over all 35 balanced cuts;
+          - graph decomposition and `128 K_2,2` theorem;
+          - 2x2 complex-unitary normal form;
+          - binary-affine support to additive-code construction.
+
+          These are not claimed by the Lean theorem index. Unrestricted AME(8,4) existence remains unresolved here.
+          EOF
+          cat > ame84-lean/THEOREM_MAP.md <<'EOF'
+          # Theorem map
+
+          - `P_falling_factorial_expansion`: exact polynomial identity on `Fin 9`.
+          - `expected_P_eq_seven_over_2560`: exact fourth-moment evaluation.
+          - `atom_eight_le_seven_over_2560`: atom certificate.
+          - `each_four_fiber_has_two_support_points`: one-fiber counting lemma.
+          - `support_card_ge_512`: global 256-fiber support bound.
+          - `support_eq_512_forces_index_two`: equality saturation.
+          - `singleton_forces_distance_five`: exact distance arithmetic from a Singleton inequality.
+          - `conditional_additive_code_exclusion`: classification-dependent interface.
+          - `third_order_moments_do_not_force_atom_bound`: moment-order mutation.
+          EOF
+          cat > ame84-lean/AXIOM_REPORT.md <<'EOF'
+          # Axiom report
+
+          The build runs `#print axioms` for every headline theorem and captures the output in `build_logs/axiom_report_output.log`.
+
+          The project declares no axiom. The classification statement is a definition of a proposition supplied explicitly as a theorem hypothesis. Standard proof irrelevance, quotient soundness, and classical choice may be reported when inherited from Mathlib constructions; they are logical infrastructure, not AME assumptions.
+          EOF
+          cat > ame84-lean/scripts/check_no_placeholders.py <<'EOF'
+          from pathlib import Path
+          import re, sys
+          patterns = [r'\bsorry\b', r'\badmit\b', r'\bunsafe\b', r'^\s*axiom\b', r'^\s*opaque\b']
+          bad = []
+          for path in Path('.').rglob('*.lean'):
+              text = path.read_text(encoding='utf-8')
+              for pattern in patterns:
+                  if re.search(pattern, text, flags=re.MULTILINE):
+                      bad.append((str(path), pattern))
+          if bad:
+              for item in bad: print(item)
+              sys.exit(1)
+          print('placeholder scan: clean')
+          EOF
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: ame84-lean
+          use-github-cache: true
+      - name: Fetch exact Mathlib cache
+        working-directory: ame84-lean
+        run: lake exe cache get
+      - name: Clean lake build and capture log
+        working-directory: ame84-lean
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .lake/build
+          lake build 2>&1 | tee build_logs/clean_lake_build.log
+          {
+            echo
+            echo '--- environment attestation ---'
+            lean --version
+            lake --version
+            printf 'mathlib_commit='
+            git -C .lake/packages/mathlib rev-parse HEAD
+            echo 'lake_build_exit_status=0'
+          } | tee -a build_logs/clean_lake_build.log
+      - name: Capture axiom output
+        working-directory: ame84-lean
+        shell: bash
+        run: |
+          set -euo pipefail
+          lake env lean AME84Support512/AxiomReport.lean 2>&1 | tee build_logs/axiom_report_output.log
+      - name: Reject forbidden placeholders
+        working-directory: ame84-lean
+        run: python3 scripts/check_no_placeholders.py
+      - name: Package successful project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ame84-deliverables
+          mkdir -p ame84-deliverables
+          find ame84-lean -type f -not -path 'ame84-lean/.lake/*' -print0 | sort -z | xargs -0 sha256sum > ame84-lean/MANIFEST.sha256
+          (cd ame84-lean && zip -qr ../ame84-deliverables/AME84_support512_Lean_v3.zip . -x '.lake/*')
+          sha256sum ame84-deliverables/AME84_support512_Lean_v3.zip > ame84-deliverables/AME84_support512_Lean_v3.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AME84-support512-Lean-v3
+          path: ame84-deliverables
+          retention-days: 30
+      - name: Commit successful downloadable archive to isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'AME84 Lean CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f ame84-deliverables/AME84_support512_Lean_v3.zip ame84-deliverables/AME84_support512_Lean_v3.zip.sha256
+          git commit -m 'Attach compiler-clean AME84 Lean core v3' || exit 0
+          git push origin HEAD:ame84-support512-lean-build
