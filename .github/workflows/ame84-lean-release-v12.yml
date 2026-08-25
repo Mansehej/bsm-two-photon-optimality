@@ -1,0 +1,46 @@
+name: Publish latest AME84 Lean archive v12
+
+on:
+  push:
+    branches: [ame84-support512-lean-build]
+    paths:
+      - '.github/workflows/ame84-lean-release-v12.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ame84-support512-lean-build
+      - name: Obtain compiler-clean v11 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for i in $(seq 1 180); do
+            git fetch origin ame84-support512-lean-build
+            if git show origin/ame84-support512-lean-build:ame84-deliverables/AME84_support512_Lean_FINAL_v11.zip > AME84_support512_Lean_FINAL.zip 2>/dev/null; then
+              found=1; break
+            fi
+            sleep 10
+          done
+          test "$found" = 1
+          unzip -t AME84_support512_Lean_FINAL.zip
+          sha256sum AME84_support512_Lean_FINAL.zip > AME84_support512_Lean_FINAL.zip.sha256
+      - name: Publish fixed latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=ame84-support512-lean-audited-latest
+          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$tag" \
+            AME84_support512_Lean_FINAL.zip \
+            AME84_support512_Lean_FINAL.zip.sha256 \
+            --title 'Audited AME(8,4) support-512 Lean package' \
+            --notes 'Generated only after a clean pinned lake build, axiom-report run, no-placeholder scan, source manifest, and ZIP integrity check. The archive states the exact kernel-proved, conditional, and unformalized boundary. It does not claim unrestricted AME(8,4) existence or nonexistence.'
