@@ -19,15 +19,20 @@ jobs:
           rm -rf ame84-lean
           mkdir -p ame84-lean
           base64 -d ame84_project.tar.gz.b64 | tar -xz -C ame84-lean
-      - uses: leanprover/lean-action@v1
-        with:
-          lake-package-directory: ame84-lean
-          auto-config: false
-          build: false
-          test: false
-          lint: false
-          use-github-cache: false
-          use-mathlib-cache: false
+      - name: Install Elan and pinned Lean toolchain
+        working-directory: .
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://elan.lean-lang.org/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Verify pinned Lean toolchain
+        shell: bash
+        run: |
+          elan toolchain install leanprover/lean4:v4.32.1
+          elan override set leanprover/lean4:v4.32.1
+          lean --version
+          lake --version
       - name: Resolve exact dependencies
         run: lake update
       - name: Fetch Mathlib cache
