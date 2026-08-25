@@ -33,6 +33,11 @@ jobs:
           elan override set leanprover/lean4:v4.32.1
           lean --version
           lake --version
+      - name: Restore exact Mathlib dependency cache
+        uses: actions/cache@v4
+        with:
+          path: ame84-lean/.lake/packages
+          key: ame84-mathlib-520045ab14e26149ee970e2e617ca04b09bde5d6-v1
       - name: Resolve exact dependencies
         run: lake update
       - name: Fetch Mathlib cache
@@ -69,14 +74,17 @@ jobs:
           set -o pipefail
           lake env lean AME84Support512/AxiomReport.lean 2>&1 | tee build_logs/axiom_report_output.log
       - name: Reject placeholders
+        if: always()
         run: python3 scripts/check_no_placeholders.py
       - name: Generate source manifest
+        if: always()
         shell: bash
         run: |
           find . -path './.lake' -prune -o -path './MANIFEST.sha256' -prune -o -type f -print0 \
             | sort -z \
             | xargs -0 sha256sum > MANIFEST.sha256
       - name: Upload compiler-clean source and logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ame84-lean-project
