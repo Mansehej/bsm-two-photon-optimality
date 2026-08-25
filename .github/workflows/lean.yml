@@ -22,14 +22,40 @@ jobs:
       - uses: leanprover/lean-action@v1
         with:
           lake-package-directory: ame84-lean
-          use-github-cache: true
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+      - name: Resolve exact dependencies
+        run: lake update
       - name: Fetch Mathlib cache
         run: lake exe cache get
+      - name: Record exact environment
+        shell: bash
+        run: |
+          mkdir -p build_logs
+          {
+            lean --version
+            lake --version
+            printf 'mathlib pin: '
+            grep '^rev' lakefile.toml
+            printf 'mathlib resolved revision: '
+            python3 - <<'PY'
+          import json
+          with open('lake-manifest.json', encoding='utf-8') as f:
+              data = json.load(f)
+          for pkg in data.get('packages', []):
+              if pkg.get('name') == 'mathlib':
+                  print(pkg.get('rev'))
+                  break
+          PY
+          } | tee build_logs/environment.log
       - name: Clean Lake build
         shell: bash
         run: |
           set -o pipefail
-          mkdir -p build_logs
           rm -rf .lake/build
           lake build 2>&1 | tee build_logs/clean_lake_build.log
       - name: Print theorem axioms
@@ -39,6 +65,12 @@ jobs:
           lake env lean AME84Support512/AxiomReport.lean 2>&1 | tee build_logs/axiom_report_output.log
       - name: Reject placeholders
         run: python3 scripts/check_no_placeholders.py
+      - name: Generate source manifest
+        shell: bash
+        run: |
+          find . -path './.lake' -prune -o -path './MANIFEST.sha256' -prune -o -type f -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > MANIFEST.sha256
       - name: Upload compiler-clean source and logs
         uses: actions/upload-artifact@v4
         with:
